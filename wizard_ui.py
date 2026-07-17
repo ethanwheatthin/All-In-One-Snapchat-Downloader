@@ -938,6 +938,10 @@ class RunStep(WizardStep):
         app.stop_btn = ttk.Button(controls, text="⏹ Stop", command=app.stop_download_func,
                                   style="Stop.TButton", state=tk.DISABLED)
         app.stop_btn.pack(side=tk.LEFT)
+        ttk.Button(controls, text="📂 Open save folder", command=app.open_output_dir,
+                   style="Secondary.TButton").pack(side=tk.RIGHT)
+        ttk.Button(controls, text="Open log", command=app.open_debug_log,
+                   style="Secondary.TButton").pack(side=tk.RIGHT, padx=(0, 10))
 
         app.progress_bar = ttk.Progressbar(run_card, style="Custom.Horizontal.TProgressbar",
                                            mode="determinate")

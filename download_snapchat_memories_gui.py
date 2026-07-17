@@ -1136,6 +1136,12 @@ class SnapchatDownloaderGUI:
     def open_output_dir(self):
         """Open the currently selected output directory in the system file manager."""
         path = self.output_path.get() or DEFAULT_OUTPUT_DIR
+        # Create it if it doesn't exist yet so the button works before the
+        # first file has been written
+        try:
+            os.makedirs(path, exist_ok=True)
+        except Exception:
+            pass
         if not os.path.exists(path):
             messagebox.showwarning("Folder not found", f"Directory not found: {path}")
             return
