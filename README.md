@@ -99,8 +99,8 @@ The app walks you through four steps:
 1. **Task** — Pick what you want to do: **Download Memories**, **Process Local Files**, or **Process Chat Media**
 
 2. **Source** — Point the app at your export:
-   - For downloads: select your `memories_history.json`. The app inspects it and reports how many memories it found and whether download URLs are present
-   - For local files: select the folder of `mydata~*.zip` files straight from Snapchat (no manual unzipping needed), your extracted `memories/` folder, or a parent folder containing multiple exports
+   - For memories (default): select the folder of `mydata~*.zip` files straight from Snapchat — no manual unzipping needed, and `memories_history.json` is found inside the ZIPs automatically. Already-extracted folders work too
+   - Downloading via the URLs in `memories_history.json` is still available as a secondary method for exports that include download URLs
    - For chat media: select your `chat_media/` folder, or the folder of export ZIPs
 
 3. **Options** — Choose your output directory and configure:

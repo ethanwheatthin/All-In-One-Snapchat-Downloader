@@ -473,57 +473,38 @@ class SourceStep(WizardStep):
         # --- memories pane ------------------------------------------------
         self.mem_pane = ttk.Frame(self.body, style="Main.TFrame")
 
-        method_card = ttk.Frame(self.mem_pane, style="Card.TFrame", padding=18)
-        method_card.pack(fill=tk.X, pady=(0, 14))
-        ttk.Label(method_card, text="How do you want to get your memories?",
+        self.method_card = ttk.Frame(self.mem_pane, style="Card.TFrame", padding=18)
+        self.method_card.pack(fill=tk.X, pady=(0, 14))
+        ttk.Label(self.method_card, text="How do you want to get your memories?",
                   style="Header.TLabel").pack(anchor=tk.W, pady=(0, 8))
 
-        ttk.Radiobutton(method_card, text="Download from Snapchat",
-                        variable=app.memories_method, value="download",
-                        style="Card.TRadiobutton",
-                        command=self._on_method_change).pack(anchor=tk.W)
-        ttk.Label(method_card,
-                  text="Fetches every memory using the download URLs inside "
-                       "memories_history.json. Use this when your export includes URLs.",
-                  style="Info.TLabel", wraplength=600, justify=tk.LEFT).pack(
-            anchor=tk.W, padx=(24, 0), pady=(0, 8))
-
-        ttk.Radiobutton(method_card, text="Process local files",
+        ttk.Radiobutton(self.method_card, text="Process your export files (recommended)",
                         variable=app.memories_method, value="local",
                         style="Card.TRadiobutton",
                         command=self._on_method_change).pack(anchor=tk.W)
-        ttk.Label(method_card,
-                  text="Applies metadata to memories you already have on disk — for exports "
-                       "without download URLs, or files from a previous download. Point it "
-                       "at your extracted memories/ folder, or simply at the folder of ZIP "
-                       "files downloaded from Snapchat — they are unzipped automatically.",
+        ttk.Label(self.method_card,
+                  text="Uses the media already inside your export — just point the app at "
+                       "the folder of ZIP files downloaded from Snapchat. They are unzipped "
+                       "and processed automatically.",
+                  style="Info.TLabel", wraplength=600, justify=tk.LEFT).pack(
+            anchor=tk.W, padx=(24, 0), pady=(0, 8))
+
+        ttk.Radiobutton(self.method_card, text="Download from Snapchat",
+                        variable=app.memories_method, value="download",
+                        style="Card.TRadiobutton",
+                        command=self._on_method_change).pack(anchor=tk.W)
+        ttk.Label(self.method_card,
+                  text="Fetches every memory using the download URLs inside "
+                       "memories_history.json. Only works when your export includes "
+                       "URLs — many exports don't.",
                   style="Info.TLabel", wraplength=600, justify=tk.LEFT).pack(
             anchor=tk.W, padx=(24, 0))
-        help_link(method_card, "Guide: setting up local processing",
+        help_link(self.method_card, "Guide: which method do I need?",
                   GUIDE_LOCAL_FILES, padx=(24, 0), pady=(2, 0))
 
-        json_card = ttk.Frame(self.mem_pane, style="Card.TFrame", padding=18)
-        json_card.pack(fill=tk.X, pady=(0, 14))
-        ttk.Label(json_card, text="Memories export file", style="Header.TLabel").pack(anchor=tk.W, pady=(0, 6))
-        ttk.Label(json_card, text="Select memories_history.json from your Snapchat export "
-                                  "(in the export's json/ or memories/ folder).",
-                  style="Info.TLabel", wraplength=640, justify=tk.LEFT).pack(anchor=tk.W, pady=(0, 8))
-        row = ttk.Frame(json_card, style="Card.TFrame")
-        row.pack(fill=tk.X, pady=(0, 8))
-        ttk.Entry(row, textvariable=app.json_path, font=("Segoe UI", 9)).pack(
-            side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
-        ttk.Button(row, text="Browse...", command=app.browse_json,
-                   style="Secondary.TButton").pack(side=tk.LEFT)
-
-        help_link(json_card, "Don't have your export yet? How to request your Snapchat data",
-                  GUIDE_GET_DATA, pady=(0, 8))
-
-        self.result_label = ttk.Label(json_card, text="", style="Info.TLabel",
-                                      wraplength=640, justify=tk.LEFT)
-        self.result_label.pack(anchor=tk.W)
-
+        # Primary input for local processing: the export itself
         self.folder_card = ttk.Frame(self.mem_pane, style="Card.TFrame", padding=18)
-        ttk.Label(self.folder_card, text="Local memories folder", style="Header.TLabel").pack(anchor=tk.W, pady=(0, 6))
+        ttk.Label(self.folder_card, text="Your Snapchat export", style="Header.TLabel").pack(anchor=tk.W, pady=(0, 6))
         folder_row = ttk.Frame(self.folder_card, style="Card.TFrame")
         folder_row.pack(fill=tk.X, pady=(0, 8))
         ttk.Entry(folder_row, textvariable=app.memories_path, font=("Segoe UI", 9)).pack(
@@ -532,13 +513,38 @@ class SourceStep(WizardStep):
                    style="Secondary.TButton").pack(side=tk.LEFT)
         app.memories_section_info = ttk.Label(
             self.folder_card,
-            text="Select the memories/ folder, a parent directory (e.g. snapchat/) to "
-                 "process all exports in bulk, or the folder of mydata~*.zip files "
-                 "straight from Snapchat — ZIPs are unzipped automatically",
+            text="Select the folder of mydata~*.zip files exactly as downloaded from "
+                 "Snapchat — no unzipping needed. Already-extracted exports work too "
+                 "(the memories/ folder or its parent).",
             style="Info.TLabel", wraplength=640, justify=tk.LEFT)
         app.memories_section_info.pack(anchor=tk.W)
-        help_link(self.folder_card, "Guide: processing local files (no download URLs)",
-                  GUIDE_LOCAL_FILES, pady=(6, 0))
+        self.local_json_label = ttk.Label(self.folder_card, text="", style="Info.TLabel",
+                                          wraplength=640, justify=tk.LEFT)
+        self.local_json_label.pack(anchor=tk.W, pady=(4, 0))
+        help_link(self.folder_card, "Don't have your export yet? How to request your Snapchat data",
+                  GUIDE_GET_DATA, pady=(6, 0))
+
+        # memories_history.json — needed for downloads; in local mode it is
+        # found inside the export automatically, so this card only appears
+        # as a fallback when auto-detection fails.
+        self.json_card = ttk.Frame(self.mem_pane, style="Card.TFrame", padding=18)
+        ttk.Label(self.json_card, text="Memories export file", style="Header.TLabel").pack(anchor=tk.W, pady=(0, 6))
+        ttk.Label(self.json_card, text="Select memories_history.json from your Snapchat export "
+                                       "(in the export's json/ or memories/ folder).",
+                  style="Info.TLabel", wraplength=640, justify=tk.LEFT).pack(anchor=tk.W, pady=(0, 8))
+        row = ttk.Frame(self.json_card, style="Card.TFrame")
+        row.pack(fill=tk.X, pady=(0, 8))
+        ttk.Entry(row, textvariable=app.json_path, font=("Segoe UI", 9)).pack(
+            side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+        ttk.Button(row, text="Browse...", command=app.browse_json,
+                   style="Secondary.TButton").pack(side=tk.LEFT)
+
+        help_link(self.json_card, "Don't have your export yet? How to request your Snapchat data",
+                  GUIDE_GET_DATA, pady=(0, 8))
+
+        self.result_label = ttk.Label(self.json_card, text="", style="Info.TLabel",
+                                      wraplength=640, justify=tk.LEFT)
+        self.result_label.pack(anchor=tk.W)
 
         # --- chat media pane ------------------------------------------------
         self.chat_pane = ttk.Frame(self.body, style="Main.TFrame")
@@ -562,8 +568,9 @@ class SourceStep(WizardStep):
                   GUIDE_CHAT_MEDIA, pady=(6, 0))
 
         # React to path edits (typed or browsed)
+        self._last_feedback_root = None
         app.json_path.trace_add("write", self._on_json_changed)
-        app.memories_path.trace_add("write", lambda *_: self._refresh())
+        app.memories_path.trace_add("write", self._on_memories_changed)
         app.chat_media_path.trace_add("write", lambda *_: self._refresh())
 
     # --- lifecycle ------------------------------------------------------
@@ -578,6 +585,21 @@ class SourceStep(WizardStep):
             path = self.app.json_path.get().strip()
             if path and path != self._inspected_path:
                 self._start_inspection(path)
+            # Restored-from-settings export folder never fired the trace
+            mem_path = self.app.memories_path.get().strip()
+            if mem_path and mem_path != self._last_feedback_root \
+                    and os.path.isdir(mem_path):
+                self._last_feedback_root = mem_path
+                self.app.refresh_memories_feedback(mem_path)
+        self._sync_route()
+
+    # --- memories folder handling ---------------------------------------
+    def _on_memories_changed(self, *_):
+        """When the export folder changes, detect ZIPs / auto-find the JSON."""
+        path = self.app.memories_path.get().strip()
+        if path and path != self._last_feedback_root and os.path.isdir(path):
+            self._last_feedback_root = path
+            self.app.refresh_memories_feedback(path)
         self._sync_route()
 
     # --- json inspection ------------------------------------------------
@@ -679,14 +701,51 @@ class SourceStep(WizardStep):
         else:
             app.mode.set("download")
 
-        # Local processing needs the memories folder card
+        # Local: the export folder is the primary input; the JSON picker
+        # only appears as a fallback when it wasn't found automatically.
+        # Download: the JSON picker is the primary (and only) input.
         if task == "memories" and app.mode.get() == "local":
             if not self.folder_card.winfo_manager():
-                self.folder_card.pack(fill=tk.X, pady=(0, 14))
+                self.folder_card.pack(fill=tk.X, pady=(0, 14), after=self.method_card)
+            if self._local_needs_json_picker():
+                if not self.json_card.winfo_manager():
+                    self.json_card.pack(fill=tk.X, pady=(0, 14), after=self.folder_card)
+            else:
+                self.json_card.pack_forget()
         else:
             self.folder_card.pack_forget()
+            if not self.json_card.winfo_manager():
+                self.json_card.pack(fill=tk.X, pady=(0, 14), after=self.method_card)
 
+        self._update_local_json_text()
         self._refresh()
+
+    def _local_needs_json_picker(self):
+        """True when a local folder is chosen but no usable JSON was found."""
+        if not os.path.isdir(self.app.memories_path.get().strip()):
+            return False
+        res = self._inspection
+        return not (res and res["ok"])
+
+    def _update_local_json_text(self):
+        """Status line under the export-folder picker (local mode)."""
+        if not os.path.isdir(self.app.memories_path.get().strip()):
+            self.local_json_label.config(text="")
+            return
+        res = self._inspection
+        if res and res["ok"]:
+            count = res["count"]
+            years = res["years"]
+            span = f" ({years[0]}–{years[1]})" if years and years[0] != years[1] else \
+                   (f" ({years[0]})" if years else "")
+            self.local_json_label.config(
+                text=f"✓ memories_history.json found — {count:,} memories{span}",
+                foreground=SUCCESS)
+        else:
+            self.local_json_label.config(
+                text="⚠ Couldn't find memories_history.json in this folder — "
+                     "select it below",
+                foreground=WARN)
 
     def _refresh(self):
         self.controller.refresh_nav()
@@ -708,11 +767,13 @@ class SourceStep(WizardStep):
         if app.task_choice.get() == "chatmedia":
             return "Select your chat_media folder"
         res = self._inspection
+        if app.memories_method.get() == "local":
+            if not os.path.isdir(app.memories_path.get().strip()):
+                return "Select the folder with your Snapchat export"
+            return "No memories_history.json found — select it below"
         if not (res and res["ok"]):
             return "Select a valid memories_history.json"
-        if app.memories_method.get() == "local":
-            return "Select your local memories folder"
-        return "This export has no download URLs — choose 'Process local files'"
+        return "This export has no download URLs — choose 'Process your export files'"
 
 
 class OptionsStep(WizardStep):

@@ -795,7 +795,7 @@ class SnapchatDownloaderGUI:
         # already-downloaded local files, "chatmedia" = merge captions and fix
         # metadata for a chat_media export folder. The wizard derives this
         # from the task choice + whether the export JSON contains URLs.
-        self.mode = tk.StringVar(value="download")
+        self.mode = tk.StringVar(value="local")
         self.memories_path = tk.StringVar()
         self.chat_media_path = tk.StringVar()
         self.is_local_mode = False  # Tracks which mode is active during processing
@@ -809,10 +809,11 @@ class SnapchatDownloaderGUI:
         self.reconvert_videos = tk.BooleanVar(value=False)
 
         # Wizard routing: which task card was picked ("memories"/"chatmedia")
-        # and, for memories, which method ("download" via JSON URLs or
-        # "local" processing of already-downloaded files).
+        # and, for memories, which method ("local" processing of the export
+        # files — the default — or "download" via JSON URLs). The method is
+        # deliberately not persisted so every session starts on local.
         self.task_choice = tk.StringVar(value="memories")
-        self.memories_method = tk.StringVar(value="download")
+        self.memories_method = tk.StringVar(value="local")
 
         self._load_settings()
 
@@ -945,7 +946,6 @@ class SnapchatDownloaderGUI:
         # task_choice is deliberately not persisted — step 1 always starts
         # on Memories.
         return {
-            "memories_method": self.memories_method,
             "json_path": self.json_path,
             "memories_path": self.memories_path,
             "chat_media_path": self.chat_media_path,
@@ -982,23 +982,27 @@ class SnapchatDownloaderGUI:
             pass
 
     def browse_memories(self):
-        """Open directory dialog to select a memories/ folder, a parent
-        directory, or the folder of export ZIPs downloaded from Snapchat."""
+        """Open directory dialog to select the Snapchat export — the folder
+        of ZIP files as downloaded, or an already-extracted folder."""
         directory = filedialog.askdirectory(
-            title="Select memories/ folder, parent directory, or folder of export ZIPs"
+            title="Select your Snapchat export — folder of ZIP files, or extracted folder"
         )
-        if not directory:
-            return
-        self.memories_path.set(directory)
-        # Give immediate feedback about what was found. A folder of export
-        # ZIPs wins even if a previous run already extracted some of them.
+        if directory:
+            # The wizard's memories_path trace runs refresh_memories_feedback
+            self.memories_path.set(directory)
+
+    def refresh_memories_feedback(self, directory):
+        """Inspect the selected export folder: detect ZIPs, count memories
+        files, and auto-locate memories_history.json."""
+        # A folder of export ZIPs wins even if a previous run already
+        # extracted some of them.
         if self._detect_export_zips(directory):
             return
         folders = find_memories_folders(directory)
         if not folders:
             self.memories_section_info.config(
-                text="⚠ No memories files found — select the memories/ folder, "
-                     "its parent, or the folder of export ZIPs"
+                text="⚠ No memories files found — select the folder of export "
+                     "ZIPs, the memories/ folder, or its parent"
             )
         elif len(folders) == 1:
             count = len([f for f in os.listdir(folders[0]) if "-main" in f])
@@ -1010,6 +1014,32 @@ class SnapchatDownloaderGUI:
             self.memories_section_info.config(
                 text=f"✓ {len(folders)} memories folders found — {total:,} total files ready to process"
             )
+        json_path = self.autofind_memories_json(directory)
+        if json_path:
+            self.json_path.set(json_path)
+
+    def autofind_memories_json(self, root):
+        """Find memories_history.json in the usual export layouts under/near root."""
+        candidates = [
+            os.path.join(root, "json", "memories_history.json"),
+            os.path.join(root, "memories_history.json"),
+            os.path.join(root, "extracted", "json", "memories_history.json"),
+        ]
+        # root is the memories/ folder itself → look in the export root
+        parent = os.path.dirname(os.path.normpath(root))
+        candidates.append(os.path.join(parent, "json", "memories_history.json"))
+        candidates.append(os.path.join(parent, "memories_history.json"))
+        # root is a folder of extracted exports (mydata~*/json/...)
+        try:
+            for item in sorted(os.listdir(root)):
+                candidates.append(
+                    os.path.join(root, item, "json", "memories_history.json"))
+        except Exception:
+            pass
+        for candidate in candidates:
+            if os.path.isfile(candidate):
+                return candidate
+        return None
 
     def _detect_export_zips(self, directory):
         """If directory holds Snapchat export ZIPs, prep them for local mode.
@@ -1036,7 +1066,7 @@ class SnapchatDownloaderGUI:
             self.memories_section_info.config(
                 text=f"✓ {len(zips)} Snapchat export ZIP(s) found ({size}) — "
                      f"they are extracted automatically when processing starts. "
-                     f"No memories_history.json inside; select it above."
+                     f"No memories_history.json inside; select it below."
             )
         return True
 
