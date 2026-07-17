@@ -494,8 +494,9 @@ class SourceStep(WizardStep):
                         command=self._on_method_change).pack(anchor=tk.W)
         ttk.Label(method_card,
                   text="Applies metadata to memories you already have on disk — for exports "
-                       "without download URLs, or files from a previous download. Requires "
-                       "the memories/ folder layout from your export.",
+                       "without download URLs, or files from a previous download. Point it "
+                       "at your extracted memories/ folder, or simply at the folder of ZIP "
+                       "files downloaded from Snapchat — they are unzipped automatically.",
                   style="Info.TLabel", wraplength=600, justify=tk.LEFT).pack(
             anchor=tk.W, padx=(24, 0))
         help_link(method_card, "Guide: setting up local processing",
@@ -531,8 +532,9 @@ class SourceStep(WizardStep):
                    style="Secondary.TButton").pack(side=tk.LEFT)
         app.memories_section_info = ttk.Label(
             self.folder_card,
-            text="Select the memories/ folder OR a parent directory (e.g. snapchat/) "
-                 "to process all exports in bulk",
+            text="Select the memories/ folder, a parent directory (e.g. snapchat/) to "
+                 "process all exports in bulk, or the folder of mydata~*.zip files "
+                 "straight from Snapchat — ZIPs are unzipped automatically",
             style="Info.TLabel", wraplength=640, justify=tk.LEFT)
         app.memories_section_info.pack(anchor=tk.W)
         help_link(self.folder_card, "Guide: processing local files (no download URLs)",
@@ -543,8 +545,9 @@ class SourceStep(WizardStep):
         chat_card = ttk.Frame(self.chat_pane, style="Card.TFrame", padding=18)
         chat_card.pack(fill=tk.X, pady=(0, 14))
         ttk.Label(chat_card, text="Chat media folder", style="Header.TLabel").pack(anchor=tk.W, pady=(0, 6))
-        ttk.Label(chat_card, text="Select the chat_media/ folder from your export — timestamps and "
-                                  "senders are matched automatically from json/chat_history.json when present.",
+        ttk.Label(chat_card, text="Select the chat_media/ folder from your export, or the folder of "
+                                  "mydata~*.zip files straight from Snapchat (unzipped automatically). "
+                                  "Timestamps and senders are matched from json/chat_history.json when present.",
                   style="Info.TLabel", wraplength=640, justify=tk.LEFT).pack(anchor=tk.W, pady=(0, 8))
         chat_row = ttk.Frame(chat_card, style="Card.TFrame")
         chat_row.pack(fill=tk.X, pady=(0, 8))

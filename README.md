@@ -10,6 +10,7 @@ A user-friendly desktop application (Windows, macOS, and Linux) to download and 
 ## ✨ What's new in this rewrite
 
 - **Guided 4-step wizard** — Task → Source → Options → Run, with a step indicator and Back/Continue navigation, instead of one dense screen
+- **Point it at the ZIPs** — select the folder of `mydata~*.zip` files exactly as Snapchat gives them to you; the app unzips them all automatically (resumable), finds `memories_history.json` inside, and processes everything
 - **Task-first flow** — choose what you want to do up front (download memories, process already-downloaded local files, or process chat media) and the app only shows you the inputs that task needs
 - **Smarter source validation** — the app inspects your `memories_history.json` when you select it and tells you how many memories it found, what year range they cover, and whether download URLs are present (so you know immediately if you need Local Files mode)
 - **Inline help** — contextual links to the relevant guide sections right where you need them
@@ -44,6 +45,7 @@ This tool downloads all your Snapchat memories using the `memories_history.json`
 - **File Timestamps** — Sets file modification dates to match memory creation dates
 - **Progress Tracking** — Real-time progress updates and detailed logging
 - **Stop/Resume** — Pause and resume downloads at any time
+- **Process Export ZIPs Directly** — Point the app at the folder of `mydata~*.zip` files from Snapchat; they're unzipped and processed automatically
 - **Process Local Files** — Apply metadata to already-downloaded memories when Snapchat export does not include download URLs
 - **Process Chat Media** — Merge captions and fix dates/timestamps for the `chat_media/` folder in your export, with senders and exact times matched from your chat history
 
@@ -98,8 +100,8 @@ The app walks you through four steps:
 
 2. **Source** — Point the app at your export:
    - For downloads: select your `memories_history.json`. The app inspects it and reports how many memories it found and whether download URLs are present
-   - For local files: select your extracted `memories/` folder (or a parent folder containing multiple exports)
-   - For chat media: select your `chat_media/` folder
+   - For local files: select the folder of `mydata~*.zip` files straight from Snapchat (no manual unzipping needed), your extracted `memories/` folder, or a parent folder containing multiple exports
+   - For chat media: select your `chat_media/` folder, or the folder of export ZIPs
 
 3. **Options** — Choose your output directory and configure:
 
@@ -131,9 +133,26 @@ The only option in this case is to download the media files manually from your S
 
 Once you have the files, Snapchat still includes the actual media inside the `memories/` subfolder of each export ZIP, so the metadata (dates, GPS coordinates, overlay merging) can still be applied. This mode does exactly that.
 
-### How to use
+### How to use (easiest: point at the ZIPs)
 
-1. **Download and extract your Snapchat export ZIP(s)**
+1. **Download your Snapchat export ZIP(s)** into one folder — no need to extract anything:
+
+   ```
+   export/
+   ├── mydata~1784250848813.zip
+   ├── mydata~1784250848813-2.zip
+   ├── mydata~1784250848813-3.zip
+   └── ...
+   ```
+
+2. On the **Task** step, choose **Process Local Files**
+3. **Memories Folder** — select the folder containing the ZIPs. The app finds `memories_history.json` inside the ZIPs automatically, so you usually don't need to select the JSON file yourself
+4. **Output Directory** — choose where to save the processed files
+5. Continue to the **Run** step and start processing — the ZIPs are unzipped into an `extracted/` subfolder first (resumable: if you stop, running again picks up where it left off), then every memory is processed
+
+### How to use (already-extracted folders)
+
+1. **Extract your Snapchat export ZIP(s)** if you prefer to do it manually
 
    Right-click each ZIP → "Extract All..." to unzip it. If you have multiple export ZIPs, extract them all into one parent folder so the structure looks like this:
 
@@ -195,7 +214,7 @@ mydata~XXX/
 ### How to use
 
 1. On the **Task** step, choose **Process Chat Media**
-2. **Chat Media Folder** — select the `chat_media/` folder from your extracted export (selecting the export folder itself also works). The app confirms how many files it found and whether it detected your chat history JSON
+2. **Chat Media Folder** — select the `chat_media/` folder from your extracted export (selecting the export folder itself also works), **or the folder of `mydata~*.zip` files straight from Snapchat** — the ZIPs are unzipped automatically before processing. The app confirms how many files it found and whether it detected your chat history JSON
 3. **Output Directory** — choose where to save the processed files
 4. Pick an **overlay mode**: merged captions only, originals only, or both
 5. Continue to the **Run** step and start processing

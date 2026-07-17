@@ -92,6 +92,7 @@ logging.basicConfig(
 # --- Delegated to refactored utility module ---
 import snap_utils, exif_utils, video_utils, zip_utils, downloader
 import chat_media_utils
+import export_zip_utils
 from wizard_ui import (ScrollableFrame, WizardController,
                        TaskStep, SourceStep, OptionsStep, RunStep)
 
@@ -981,18 +982,23 @@ class SnapchatDownloaderGUI:
             pass
 
     def browse_memories(self):
-        """Open directory dialog to select a memories/ folder or parent directory."""
+        """Open directory dialog to select a memories/ folder, a parent
+        directory, or the folder of export ZIPs downloaded from Snapchat."""
         directory = filedialog.askdirectory(
-            title="Select memories/ folder or parent directory (e.g. snapchat/)"
+            title="Select memories/ folder, parent directory, or folder of export ZIPs"
         )
         if not directory:
             return
         self.memories_path.set(directory)
-        # Give immediate feedback about what was found
+        # Give immediate feedback about what was found. A folder of export
+        # ZIPs wins even if a previous run already extracted some of them.
+        if self._detect_export_zips(directory):
+            return
         folders = find_memories_folders(directory)
         if not folders:
             self.memories_section_info.config(
-                text="⚠ No memories files found — select the memories/ folder or its parent"
+                text="⚠ No memories files found — select the memories/ folder, "
+                     "its parent, or the folder of export ZIPs"
             )
         elif len(folders) == 1:
             count = len([f for f in os.listdir(folders[0]) if "-main" in f])
@@ -1005,10 +1011,40 @@ class SnapchatDownloaderGUI:
                 text=f"✓ {len(folders)} memories folders found — {total:,} total files ready to process"
             )
 
+    def _detect_export_zips(self, directory):
+        """If directory holds Snapchat export ZIPs, prep them for local mode.
+
+        Pulls the small json/ folder out of the ZIPs right away so
+        memories_history.json can be inspected and the wizard can
+        validate — the full (multi-GB) extraction happens when
+        processing starts. Returns True if export ZIPs were found.
+        """
+        zips = export_zip_utils.find_export_zips(directory)
+        if not zips:
+            return False
+        size = export_zip_utils.format_size(export_zip_utils.total_zip_size(zips))
+        dest = export_zip_utils.default_extract_root(directory)
+        json_path = export_zip_utils.extract_memories_json(zips, dest)
+        if json_path:
+            self.json_path.set(json_path)
+            self.memories_section_info.config(
+                text=f"✓ {len(zips)} Snapchat export ZIP(s) found ({size}) — "
+                     f"memories_history.json located inside. ZIPs are extracted "
+                     f"automatically when processing starts."
+            )
+        else:
+            self.memories_section_info.config(
+                text=f"✓ {len(zips)} Snapchat export ZIP(s) found ({size}) — "
+                     f"they are extracted automatically when processing starts. "
+                     f"No memories_history.json inside; select it above."
+            )
+        return True
+
     def browse_chat_media(self):
-        """Open directory dialog to select a chat_media/ folder."""
+        """Open directory dialog to select a chat_media/ folder or the
+        folder of export ZIPs downloaded from Snapchat."""
         directory = filedialog.askdirectory(
-            title="Select the chat_media/ folder from your Snapchat export"
+            title="Select the chat_media/ folder or folder of export ZIPs"
         )
         if not directory:
             return
@@ -1016,6 +1052,17 @@ class SnapchatDownloaderGUI:
         direct = os.path.join(directory, "chat_media")
         if os.path.isdir(direct):
             directory = direct
+        elif not os.path.basename(directory).lower() == "chat_media":
+            zips = export_zip_utils.find_export_zips(directory)
+            if zips:
+                size = export_zip_utils.format_size(
+                    export_zip_utils.total_zip_size(zips))
+                self.chat_media_path.set(directory)
+                self.chat_media_section_info.config(
+                    text=f"✓ {len(zips)} Snapchat export ZIP(s) found ({size}) — "
+                         f"they are extracted automatically when processing starts"
+                )
+                return
         self.chat_media_path.set(directory)
 
         # Immediate feedback: file count + whether chat history JSON was found
@@ -2098,11 +2145,52 @@ class SnapchatDownloaderGUI:
 
         return timedelta(0)  # fallback: assume UTC
 
+    def _maybe_extract_export_zips(self, root_dir):
+        """Extract Snapchat export ZIPs found in root_dir before processing.
+
+        When the user points the app at the folder of mydata~*.zip files
+        as downloaded from Snapchat, merge-extract them all into
+        root_dir/extracted (which then looks like one extracted export)
+        and return that path. Returns root_dir unchanged when it holds no
+        export ZIPs, or None if the user hit Stop mid-extraction.
+        """
+        zips = export_zip_utils.find_export_zips(root_dir)
+        if not zips:
+            return root_dir
+        dest = export_zip_utils.default_extract_root(root_dir)
+        size = export_zip_utils.format_size(export_zip_utils.total_zip_size(zips))
+        self.log(f"📦 Found {len(zips)} Snapchat export ZIP(s) ({size})")
+        self.log(f"📂 Extracting to: {dest}")
+        self.log("   (already-extracted files are skipped, so this is resumable)")
+        stats = export_zip_utils.extract_export_zips(
+            zips, dest,
+            log=self.log,
+            progress=self.update_progress,
+            stop_check=lambda: self.stop_download,
+        )
+        if stats["aborted"]:
+            self.log("⚠ Extraction stopped — run again to resume where it left off")
+            return None
+        summary = f"✓ Extraction done: {stats['extracted']:,} extracted"
+        if stats["skipped"]:
+            summary += f", {stats['skipped']:,} already present"
+        if stats["errors"]:
+            summary += f", {stats['errors']:,} errors (see debug.log)"
+        self.log(summary)
+        self.log("")
+        return dest
+
     def process_local_files_thread(self, json_file, memories_root, output_dir):
         """Apply JSON metadata to already-downloaded local memory files."""
         try:
             output_path = Path(output_dir)
             output_path.mkdir(exist_ok=True)
+
+            extract_root = self._maybe_extract_export_zips(memories_root)
+            if extract_root is None:
+                self.download_complete()
+                return
+            memories_root = extract_root
 
             self.log(f"Loading JSON: {json_file}")
             with open(json_file, "r", encoding="utf-8") as f:
@@ -2512,6 +2600,19 @@ class SnapchatDownloaderGUI:
         try:
             output_path = Path(output_dir)
             output_path.mkdir(exist_ok=True)
+
+            extract_root = self._maybe_extract_export_zips(chat_media_dir)
+            if extract_root is None:
+                self.download_complete()
+                return
+            if extract_root != chat_media_dir:
+                extracted_chat = os.path.join(extract_root, "chat_media")
+                if os.path.isdir(extracted_chat):
+                    chat_media_dir = extracted_chat
+                else:
+                    self.log("⚠ The export ZIPs contain no chat_media folder")
+                    self.download_complete()
+                    return
 
             self.log(f"Scanning chat media folder: {chat_media_dir}")
             scan = chat_media_utils.scan_chat_media(chat_media_dir)
