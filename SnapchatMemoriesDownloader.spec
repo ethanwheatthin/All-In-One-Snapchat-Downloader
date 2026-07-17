@@ -5,7 +5,7 @@ from PyInstaller.utils.hooks import collect_all
 
 datas = []
 binaries = []
-hiddenimports = ['av', 'mutagen', 'mutagen.mp4', 'piexif', 'PIL', 'PIL.Image', 'timezonefinder', 'pytz', 'tzlocal', 'video_utils', 'snap_utils', 'zip_utils', 'downloader', 'exif_utils']
+hiddenimports = ['av', 'mutagen', 'mutagen.mp4', 'piexif', 'PIL', 'PIL.Image', 'timezonefinder', 'pytz', 'tzlocal', 'video_utils', 'snap_utils', 'zip_utils', 'downloader', 'exif_utils', 'chat_media_utils', 'wizard_ui', 'export_zip_utils']
 datas += collect_data_files('timezonefinder')
 tmp_ret = collect_all('av')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
