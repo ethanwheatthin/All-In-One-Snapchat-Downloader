@@ -3,7 +3,7 @@ import sys
 from PyInstaller.utils.hooks import collect_data_files
 from PyInstaller.utils.hooks import collect_all
 
-datas = []
+datas = [('images/venmo_qr.png', 'images')]
 binaries = []
 hiddenimports = ['av', 'mutagen', 'mutagen.mp4', 'piexif', 'PIL', 'PIL.Image', 'timezonefinder', 'pytz', 'tzlocal', 'video_utils', 'snap_utils', 'zip_utils', 'downloader', 'exif_utils', 'chat_media_utils', 'wizard_ui', 'export_zip_utils']
 datas += collect_data_files('timezonefinder')

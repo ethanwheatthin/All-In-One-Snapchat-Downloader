@@ -37,6 +37,13 @@ GUIDE_LOCAL_FILES = README_URL + "#-processing-local-files-no-download-urls"
 GUIDE_CHAT_MEDIA = README_URL + "#-processing-chat-media-merge-captions--fix-metadata"
 FFMPEG_GUIDE_URL = "https://phoenixnap.com/kb/ffmpeg-windows"
 VLC_DOWNLOAD_URL = "https://images.videolan.org/vlc/"
+VENMO_URL = "https://account.venmo.com/u/ethan-c"
+
+
+def resource_path(relative):
+    """Path to a bundled asset — works from source and from PyInstaller builds."""
+    base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base, relative)
 
 
 def help_link(parent, text, url, **pack_kwargs):
@@ -930,7 +937,17 @@ class RunStep(WizardStep):
         self.summary_frame = ttk.Frame(summary_card, style="Card.TFrame")
         self.summary_frame.pack(fill=tk.X, pady=(2, 0))
 
-        run_card = self.card(fill=tk.BOTH, expand=True, pady=(0, 0))
+        # Run card (75%) and support card (25%) side by side
+        row = ttk.Frame(self.body, style="Main.TFrame")
+        row.pack(fill=tk.BOTH, expand=True)
+        row.columnconfigure(0, weight=3, uniform="runrow")
+        row.columnconfigure(1, weight=1, uniform="runrow")
+        row.rowconfigure(0, weight=1)
+
+        run_card = ttk.Frame(row, style="Card.TFrame", padding=18)
+        run_card.grid(row=0, column=0, sticky="nsew")
+        self._build_support_card(row)
+
         controls = ttk.Frame(run_card, style="Card.TFrame")
         controls.pack(fill=tk.X, pady=(0, 12))
         app.download_btn = ttk.Button(controls, text="Start Download",
@@ -959,6 +976,32 @@ class RunStep(WizardStep):
                                yscrollcommand=scrollbar.set, height=10)
         app.log_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.config(command=app.log_text.yview)
+
+    def _build_support_card(self, parent):
+        """Narrow 'buy me a coffee' card beside the run/log card."""
+        card = ttk.Frame(parent, style="Card.TFrame", padding=12)
+        card.grid(row=0, column=1, sticky="nsew", padx=(14, 0))
+
+        tk.Label(card, text="☕ Enjoying the app?", bg=CARD, fg=TEXT,
+                 font=("Segoe UI", 10, "bold")).pack(anchor=tk.W)
+        tk.Label(card, text="This tool is free — if it saved your memories, "
+                            "you can buy me a coffee to keep development going.",
+                 bg=CARD, fg=MUTED, font=("Segoe UI", 9),
+                 wraplength=180, justify=tk.LEFT).pack(anchor=tk.W, pady=(2, 10))
+
+        # QR code — scan with a phone instead of clicking
+        try:
+            self._venmo_qr = tk.PhotoImage(file=resource_path(
+                os.path.join("images", "venmo_qr.png")))
+            tk.Label(card, image=self._venmo_qr, bg=CARD).pack(pady=(0, 2))
+            tk.Label(card, text="Scan to tip", bg=CARD, fg=MUTED,
+                     font=("Segoe UI", 8)).pack(pady=(0, 8))
+        except Exception:
+            pass  # missing asset — the button alone still works
+
+        ttk.Button(card, text="☕ Buy me a coffee",
+                   command=lambda: webbrowser.open(VENMO_URL),
+                   style="Secondary.TButton").pack(fill=tk.X)
 
     def _start(self):
         self.app.start_download()
