@@ -789,7 +789,7 @@ class OptionsStep(WizardStep):
         self.heading(out_card, "Save location")
         self.path_row(out_card, app.output_path, app.browse_output,
                       extra_buttons=[("Open", app.open_output_dir),
-                                     ("Open Log", app.open_debug_log)])
+                                     ("Open debug.log", app.open_debug_log)])
         self.info(out_card, "Processed files are written here, organized by year.")
 
         overlay_card = self.card()
@@ -941,7 +941,7 @@ class RunStep(WizardStep):
         app.stop_btn.pack(side=tk.LEFT)
         ttk.Button(controls, text="📂 Open save folder", command=app.open_output_dir,
                    style="Secondary.TButton").pack(side=tk.RIGHT)
-        ttk.Button(controls, text="Open log", command=app.open_debug_log,
+        ttk.Button(controls, text="Open debug.log", command=app.open_debug_log,
                    style="Secondary.TButton").pack(side=tk.RIGHT, padx=(0, 10))
 
         app.progress_bar = ttk.Progressbar(run_card, style="Custom.Horizontal.TProgressbar",
