@@ -62,7 +62,7 @@ This tool downloads all your Snapchat memories using the `memories_history.json`
 
 ## 📥 How to Get Your Snapchat Data
 
-> **Note:** Snapchat exports expire after 7 days. It is advised to move quickly when you get access to your full export from snapchat. If you get errors it's best to just request a new batch and reprocess that.
+> **Note:** The memories_history.json file contains links that expire after 7 days. It is advised to move quickly when you get access to your full export from snapchat. If you get errors it's best to just request a new batch and reprocess that. If not proceed with the local processing route
 
 1. Open **Snapchat** on your mobile device
 2. Tap your **profile icon** (top-left) → **⚙️ Settings** (top-right)
