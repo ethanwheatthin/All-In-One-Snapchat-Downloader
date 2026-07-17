@@ -770,7 +770,7 @@ def get_file_extension(media_type):
 class SnapchatDownloaderGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("Snapchat Memories Downloader")
+        self.root.title("All-In-One Snapchat Downloader")
         self.root.geometry("1000x800")
         self.root.resizable(True, True)
         self.root.minsize(900, 700)
@@ -924,7 +924,7 @@ class SnapchatDownloaderGUI:
 
         header = ttk.Frame(container, style="Main.TFrame")
         header.pack(fill=tk.X, pady=(0, 12))
-        ttk.Label(header, text="Snapchat Memories Downloader",
+        ttk.Label(header, text="All-In-One Snapchat Downloader",
                   style="AppTitle.TLabel").pack(side=tk.LEFT)
         ttk.Label(header, text="with metadata preservation",
                   style="AppSubtitle.TLabel").pack(side=tk.LEFT, padx=(10, 0), pady=(5, 0))
