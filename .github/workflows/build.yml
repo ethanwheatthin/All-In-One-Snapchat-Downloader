@@ -18,14 +18,14 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            artifact_name: SnapchatMemoriesDownloader-windows
-            artifact_path: dist/SnapchatMemoriesDownloader.exe
+            artifact_name: AllInOneSnapchatDownloader-windows
+            artifact_path: dist/AllInOneSnapchatDownloader.exe
           - os: macos-latest
-            artifact_name: SnapchatMemoriesDownloader-macos
-            artifact_path: dist/SnapchatMemoriesDownloader-macos.zip
+            artifact_name: AllInOneSnapchatDownloader-macos
+            artifact_path: dist/AllInOneSnapchatDownloader-macos.zip
           - os: ubuntu-latest
-            artifact_name: SnapchatMemoriesDownloader-linux
-            artifact_path: dist/SnapchatMemoriesDownloader-linux.tar.gz
+            artifact_name: AllInOneSnapchatDownloader-linux
+            artifact_path: dist/AllInOneSnapchatDownloader-linux.tar.gz
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -47,17 +47,17 @@ jobs:
           pip install -r requirements.txt pyinstaller
 
       - name: Build
-        run: pyinstaller --clean SnapchatMemoriesDownloader.spec
+        run: pyinstaller --clean AllInOneSnapchatDownloader.spec
 
       # Zip/tar the Mac and Linux outputs so executable permissions survive
       # artifact upload (upload-artifact does not preserve the exec bit).
       - name: Package (macOS)
         if: runner.os == 'macOS'
-        run: ditto -c -k --keepParent dist/SnapchatMemoriesDownloader.app dist/SnapchatMemoriesDownloader-macos.zip
+        run: ditto -c -k --keepParent dist/AllInOneSnapchatDownloader.app dist/AllInOneSnapchatDownloader-macos.zip
 
       - name: Package (Linux)
         if: runner.os == 'Linux'
-        run: tar -czf dist/SnapchatMemoriesDownloader-linux.tar.gz -C dist SnapchatMemoriesDownloader
+        run: tar -czf dist/AllInOneSnapchatDownloader-linux.tar.gz -C dist AllInOneSnapchatDownloader
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

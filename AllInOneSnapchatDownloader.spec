@@ -32,7 +32,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='SnapchatMemoriesDownloader',
+    name='AllInOneSnapchatDownloader',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -51,9 +51,9 @@ exe = EXE(
 if sys.platform == 'darwin':
     app = BUNDLE(
         exe,
-        name='SnapchatMemoriesDownloader.app',
+        name='AllInOneSnapchatDownloader.app',
         icon=None,
-        bundle_identifier='com.ethanwheatthin.snapchatmemoriesdownloader',
+        bundle_identifier='com.ethanwheatthin.allinonesnapchatdownloader',
         info_plist={
             'NSHighResolutionCapable': True,
         },

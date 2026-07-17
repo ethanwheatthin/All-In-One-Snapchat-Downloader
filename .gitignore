@@ -32,7 +32,7 @@ MANIFEST
 *.manifest
 *.spec
 # The release build is driven by this spec (issue #45) — it must be in the repo
-!SnapchatMemoriesDownloader.spec
+!AllInOneSnapchatDownloader.spec
 
 # Installer logs
 pip-log.txt
