@@ -316,17 +316,3 @@ This project is provided as-is for personal use. Use responsibly and in accordan
 ## ⚠️ Disclaimer
 
 This tool is not affiliated with, endorsed by, or connected to Snap Inc. or Snapchat. It is an independent utility designed to help users download their own personal data from Snapchat's official data export feature.
-
-## Star History
-
-<a href="https://www.star-history.com/?repos=ethanwheatthin%2FAll-In-One-Snapchat-Downloader&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=ethanwheatthin/All-In-One-Snapchat-Downloader&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=ethanwheatthin/All-In-One-Snapchat-Downloader&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=ethanwheatthin/All-In-One-Snapchat-Downloader&type=date&legend=top-left" />
- </picture>
-</a>
-
----
-
-**Enjoy preserving your Snapchat memories! 📸🎥**
