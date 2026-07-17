@@ -1074,7 +1074,7 @@ class SnapchatDownloaderGUI:
         """Open directory dialog to select a chat_media/ folder or the
         folder of export ZIPs downloaded from Snapchat."""
         directory = filedialog.askdirectory(
-            title="Select the chat_media/ folder or folder of export ZIPs"
+            title="Select your Snapchat export — folder of ZIP files, or chat_media folder"
         )
         if not directory:
             return

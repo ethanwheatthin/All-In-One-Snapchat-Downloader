@@ -550,10 +550,11 @@ class SourceStep(WizardStep):
         self.chat_pane = ttk.Frame(self.body, style="Main.TFrame")
         chat_card = ttk.Frame(self.chat_pane, style="Card.TFrame", padding=18)
         chat_card.pack(fill=tk.X, pady=(0, 14))
-        ttk.Label(chat_card, text="Chat media folder", style="Header.TLabel").pack(anchor=tk.W, pady=(0, 6))
-        ttk.Label(chat_card, text="Select the chat_media/ folder from your export, or the folder of "
-                                  "mydata~*.zip files straight from Snapchat (unzipped automatically). "
-                                  "Timestamps and senders are matched from json/chat_history.json when present.",
+        ttk.Label(chat_card, text="Your Snapchat export", style="Header.TLabel").pack(anchor=tk.W, pady=(0, 6))
+        ttk.Label(chat_card, text="Select the folder of mydata~*.zip files exactly as downloaded from "
+                                  "Snapchat — no unzipping needed. An already-extracted chat_media/ "
+                                  "folder works too. Timestamps and senders are matched from "
+                                  "json/chat_history.json automatically when present.",
                   style="Info.TLabel", wraplength=640, justify=tk.LEFT).pack(anchor=tk.W, pady=(0, 8))
         chat_row = ttk.Frame(chat_card, style="Card.TFrame")
         chat_row.pack(fill=tk.X, pady=(0, 8))
@@ -765,7 +766,7 @@ class SourceStep(WizardStep):
     def invalid_hint(self):
         app = self.app
         if app.task_choice.get() == "chatmedia":
-            return "Select your chat_media folder"
+            return "Select the folder with your Snapchat export"
         res = self._inspection
         if app.memories_method.get() == "local":
             if not os.path.isdir(app.memories_path.get().strip()):
