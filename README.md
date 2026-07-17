@@ -3,9 +3,9 @@
 A user-friendly desktop application (Windows, macOS, and Linux) to download and preserve your Snapchat memories and chat media with their original metadata, including dates and location information.
 
 > **🎨 This is a complete UI rewrite of the original [Snapchat Memories Downloader GUI](https://github.com/ethanwheatthin/Snapchat_Memories_Downloader_GUI).**
-> The single-screen interface has been replaced with a guided step-by-step wizard: pick your task (download memories, process local files, or process chat media), point the app at your export, choose your options, and go. All the battle-tested download and metadata-processing logic from the original project is carried over unchanged.
+> The single-screen interface has been replaced with a guided step-by-step wizard: pick your task (download memories, process local files, or process chat media), point the app at your directory of zip files, choose your options, and go. All the battle-tested download and metadata-processing logic from the original project is carried over unchanged.
 
-![Source step — pointing the app at the folder of Snapchat export ZIPs](images/wizard_step2_source.png)
+![Step 1 — Task selection](images/wizard_step1_task.png)
 
 ## ✨ What's new in this rewrite
 
@@ -19,16 +19,15 @@ A user-friendly desktop application (Windows, macOS, and Linux) to download and 
 
 **Download the official release executable** — The easiest way to use this tool:
 
-**YouTube Video Tutorial** - https://www.youtube.com/watch?v=DpVOyY-MCLQ&t=1s
+**YouTube Video Tutorial** - https://www.youtube.com/watch?v=O32IF1Qxg2E
 
 1. **Get the `.exe`** from the [latest release](https://github.com/ethanwheatthin/All-In-One-Snapchat-Downloader/releases)
 2. **Install recommended tools** (optional but highly recommended):
    - [VLC Media Player](https://www.videolan.org/) — for video format conversion
    - [FFmpeg](https://www.ffmpeg.org/download.html) — for enhanced video overlay merging
-3. **Request your Snapchat data** (see instructions below)
+   - RESTART COMPUTER AFTER INSTALLING THESE
+3. **Request your Snapchat data** (see instructions below or YT video)
 4. **Run the app** and follow the wizard
-
-> **Note:** Do not download the repository ZIP. Use the pre-built `.exe` from the Releases page for the best experience.
 
 ## 📋 Overview
 
@@ -84,9 +83,10 @@ This tool downloads all your Snapchat memories using the `memories_history.json`
 7. **Wait 24-48 hours** for Snapchat to prepare your data
 8. **Download every ZIP** when you receive the email from Snapchat, and save them all into one folder — large exports are split across several `mydata~*.zip` files
 
-> **Note:** If you have multiple zip files available for download, only the first (non-numbered) ZIP contains the `memories_history.json` file. The JSON contains all memories from the request, regardless of only being located in the first ZIP.
+   ![Download Export Button](images/snapchat%20export%20multiple%20zips.png)
+   ![Download Export Button](images/zip_files_in_one_dir.png)
 >
-9. **That's it — no unzipping needed.** Point the app at the folder of ZIPs and it extracts and processes everything automatically. (Prefer to extract manually? Right-click → "Extract All..." works too — the app also accepts extracted folders.)
+9. **That's it — no unzipping needed.** Point the app at the folder of ZIPs and it extracts and processes everything automatically.
 
 ## 📖 How to Use
 
@@ -112,11 +112,6 @@ The app walks you through four steps:
      - Useful when resuming after an interruption or adding new memories
      - Validates existing files and only downloads what's missing
      - Also checks for multiple filename patterns (merged overlays, collision-resolved files)
-   - **Re-convert existing videos to H.264 if needed** — Only appears when resume mode is enabled
-     - Checks codec of existing videos and re-converts non-H.264 videos
-     - Helps ensure all videos are compatible with Windows Media Player and other tools
-     - Skips videos already in H.264 format to save time
-
    **Timezone Handling:**
    - **Use GPS coordinates to determine local timezone** — Recommended, enabled by default
      - Automatically detects local timezone from photo/video GPS location
@@ -136,67 +131,6 @@ The app walks you through four steps:
    ![Step 4 — Memories being processed](images/wizard_step4_processing.png)
 
 Files are saved in your output directory, named by creation date: `YYYYMMDD_HHMMSS.jpg` or `YYYYMMDD_HHMMSS.mp4`. Overlays are automatically merged when detected.
-
-## 📂 Processing Local Files (No Download URLs)
-
-Some Snapchat data exports do not include download URLs in `memories_history.json`, the `Media Download Url` field is empty for every entry. This has been confirmed across multiple accounts; it does not appear to be a one-off issue. If this happened to you, the standard download mode will skip all files and there is no workaround through the app, the URLs simply are not there.
-
-The only option in this case is to download the media files manually from your Snapchat account before your export links expire, which is tedious since Snapchat splits large libraries across many export ZIPs (sometimes 50+ files) that must each be downloaded and extracted one by one.
-
-Once you have the files, Snapchat still includes the actual media inside the `memories/` subfolder of each export ZIP, so the metadata (dates, GPS coordinates, overlay merging) can still be applied. This mode does exactly that.
-
-### How to use (easiest: point at the ZIPs)
-
-1. **Download your Snapchat export ZIP(s)** into one folder — no need to extract anything:
-
-   ```
-   export/
-   ├── mydata~1784250848813.zip
-   ├── mydata~1784250848813-2.zip
-   ├── mydata~1784250848813-3.zip
-   └── ...
-   ```
-
-2. On the **Task** step, choose **Memories**
-3. On the **Source** step, keep **Process your export files (recommended)** selected and, under **Your Snapchat export**, select the folder containing the ZIPs. The app finds `memories_history.json` inside the ZIPs automatically — no need to select the JSON file yourself
-4. On the **Options** step, choose where to save the processed files
-5. Continue to the **Run** step and start processing — the ZIPs are unzipped into an `extracted/` subfolder first (resumable: if you stop, running again picks up where it left off), then every memory is processed
-
-### How to use (already-extracted folders)
-
-1. **Extract your Snapchat export ZIP(s)** if you prefer to do it manually
-
-   Right-click each ZIP → "Extract All..." to unzip it. If you have multiple export ZIPs, extract them all into one parent folder so the structure looks like this:
-
-   ```
-   snapchat/
-   ├── mydata~AAA123/
-   │   └── memories/
-   ├── mydata~BBB456/
-   │   └── memories/
-   └── mydata~CCC789/
-       └── memories/
-   ```
-
-   ![Parent folder containing multiple extracted Snapchat export folders](images/local_mode_parent_folder.png)
-
-   Inside each extracted folder you will find a `memories/` subfolder containing your media files:
-
-   ![Contents of a single extracted export folder showing the memories subfolder](images/local_mode_memories_subfolder.png)
-
-2. On the **Task** step, choose **Memories**
-3. On the **Source** step, keep **Process your export files (recommended)** selected and, under **Your Snapchat export**, select one of the following:
-   - The `memories/` folder from a single export (e.g. `mydata~XXX/memories/`)
-   - The parent export folder (e.g. `mydata~XXX/`) — the app will find `memories/` automatically
-   - A folder containing multiple exports (e.g. `snapchat/`), the app discovers all `mydata~*/memories/` subfolders and processes them in bulk
-
-   `memories_history.json` is located automatically in the usual export layouts; a JSON picker appears only if it can't be found
-4. On the **Options** step, choose where to save the processed files
-5. Continue to the **Run** step and start processing
-
-The app matches each local file to its JSON entry using the file's modification timestamp, which Snapchat preserves in the export. Correct dates, GPS coordinates, and timezone information are then embedded into each output file.
-
-> **Note:** If you have multiple export ZIPs (Snapchat splits large exports across several files), place all extracted folders inside one parent directory and point the app at that parent. It will process all of them in a single run.
 
 ## 💬 Processing Chat Media (Merge Captions + Fix Metadata)
 
