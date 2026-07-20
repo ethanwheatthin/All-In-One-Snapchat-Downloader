@@ -24,7 +24,7 @@ jobs:
           # (no cross-compiling, no fat/universal2 binary), so Intel and Apple
           # Silicon Macs each need their own build or the other arch gets
           # "app is not supported on this Mac" when double-clicked.
-          - os: macos-13
+          - os: macos-15-intel
             artifact_name: AllInOneSnapchatDownloader-macos-intel
             artifact_path: dist/AllInOneSnapchatDownloader-macos-intel.zip
           - os: macos-latest
