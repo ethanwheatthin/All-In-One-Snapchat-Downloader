@@ -20,9 +20,16 @@ jobs:
           - os: windows-latest
             artifact_name: AllInOneSnapchatDownloader-windows
             artifact_path: dist/AllInOneSnapchatDownloader.exe
+          # PyInstaller only builds for the architecture of the runner it's on
+          # (no cross-compiling, no fat/universal2 binary), so Intel and Apple
+          # Silicon Macs each need their own build or the other arch gets
+          # "app is not supported on this Mac" when double-clicked.
+          - os: macos-13
+            artifact_name: AllInOneSnapchatDownloader-macos-intel
+            artifact_path: dist/AllInOneSnapchatDownloader-macos-intel.zip
           - os: macos-latest
-            artifact_name: AllInOneSnapchatDownloader-macos
-            artifact_path: dist/AllInOneSnapchatDownloader-macos.zip
+            artifact_name: AllInOneSnapchatDownloader-macos-arm64
+            artifact_path: dist/AllInOneSnapchatDownloader-macos-arm64.zip
           - os: ubuntu-latest
             artifact_name: AllInOneSnapchatDownloader-linux
             artifact_path: dist/AllInOneSnapchatDownloader-linux.tar.gz
@@ -53,7 +60,7 @@ jobs:
       # artifact upload (upload-artifact does not preserve the exec bit).
       - name: Package (macOS)
         if: runner.os == 'macOS'
-        run: ditto -c -k --keepParent dist/AllInOneSnapchatDownloader.app dist/AllInOneSnapchatDownloader-macos.zip
+        run: ditto -c -k --keepParent dist/AllInOneSnapchatDownloader.app "dist/${{ matrix.artifact_name }}.zip"
 
       - name: Package (Linux)
         if: runner.os == 'Linux'

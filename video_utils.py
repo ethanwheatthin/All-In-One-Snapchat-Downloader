@@ -135,7 +135,25 @@ def _get_video_rotation(file_path):
 
 def check_ffmpeg():
     import shutil
-    return shutil.which('ffmpeg') is not None
+    if shutil.which('ffmpeg'):
+        return True
+    # GUI apps on macOS are launched by LaunchServices/Finder, not a login shell,
+    # so they get a minimal default PATH that excludes Homebrew's install dirs
+    # (/opt/homebrew/bin on Apple Silicon, /usr/local/bin on Intel). ffmpeg can
+    # be installed and working fine in Terminal yet invisible to shutil.which
+    # here. Check the common install locations directly and, if found, patch
+    # this process's PATH so the bare 'ffmpeg'/'ffprobe' calls below resolve.
+    if sys.platform == 'darwin':
+        candidate_dirs = ['/opt/homebrew/bin', '/usr/local/bin', '/opt/local/bin']
+    elif sys.platform.startswith('linux'):
+        candidate_dirs = ['/usr/local/bin', '/snap/bin', '/var/lib/flatpak/exports/bin']
+    else:
+        candidate_dirs = []
+    for d in candidate_dirs:
+        if os.path.exists(os.path.join(d, 'ffmpeg')):
+            os.environ['PATH'] = d + os.pathsep + os.environ.get('PATH', '')
+            return True
+    return False
 
 
 def check_vlc():

@@ -219,9 +219,11 @@ Core libraries:
 The app runs on macOS and Linux as well as Windows. Grab the platform build from the [releases page](https://github.com/ethanwheatthin/All-In-One-Snapchat-Downloader/releases) if one is published, or run from source (see below).
 
 **macOS notes:**
+- Grab the build that matches your Mac's chip: `AllInOneSnapchatDownloader-macos-arm64.zip` for Apple Silicon (M1/M2/M3/M4) or `AllInOneSnapchatDownloader-macos-intel.zip` for Intel Macs. Each build only runs on its own architecture — the wrong one gives "This application is not supported on this Mac." Check your chip under **Apple menu → About This Mac**.
 - If you use the pre-built `.app`, macOS Gatekeeper will warn about an unsigned app the first time. Right-click the app → **Open** → **Open** to run it.
 - If running from source, use Python from [python.org](https://www.python.org/downloads/) or Homebrew (`brew install python-tk`) — the Tk that ships with the old system Python is buggy.
 - Install [VLC](https://www.videolan.org/) and/or FFmpeg (`brew install ffmpeg`) for video conversion and overlay merging.
+- If the app's tool check says FFmpeg isn't found even though `brew install ffmpeg` worked and it runs fine in Terminal: apps launched by double-clicking (not from a shell) don't inherit your shell's PATH, so Homebrew's install dir (`/opt/homebrew/bin` on Apple Silicon, `/usr/local/bin` on Intel) can be invisible to it. The app already checks those locations directly, but if FFmpeg is installed somewhere else, make sure it's on the `PATH` your login shell sets up, then relaunch the app.
 
 **Linux notes:**
 - Tkinter is not bundled with most distro Pythons. Install it first:
