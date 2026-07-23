@@ -95,6 +95,10 @@ def test_set_video_metadata_pyav_writes_apple_readable_gps():
         assert b'meta' in moov_names, "meta box must be a direct child of moov"
         meta = next((s, e) for n, s, e in moov_children if n == b'meta')
         assert video_utils._meta_has_mdta_handler(data, meta[0], meta[1])
+        # QTFF movie-level meta has NO version/flags; Apple parsers stop at the
+        # 4 zero bytes of an ISO-style meta and never reach the GPS keys
+        assert video_utils._meta_children_offset(data, meta[0], meta[1]) == 8, \
+            "moov-level meta must use QTFF layout (no version/flags)"
         assert b'meta' not in udta_names, "meta box should have been moved out of udta"
         # Android-style (C)xyz GPS atom for broader compatibility
         assert b'\xa9xyz' in udta_names, "udta should contain a (C)xyz GPS atom"
@@ -104,6 +108,52 @@ def test_set_video_metadata_pyav_writes_apple_readable_gps():
         is_valid, info = video_utils.validate_video_file(temp_path)
         assert is_valid, f"Remuxed file failed validation: {info}"
         assert info['has_video'] and info['has_audio']
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
+
+
+def test_relocate_repairs_v10_0_5_iso_style_meta():
+    """Files written by v10.0.5 (moov-level meta WITH version/flags) get repaired."""
+    if not video_utils.HAS_PYAV:
+        pytest.skip("PyAV not available")
+    if not video_utils.check_ffmpeg():
+        pytest.skip("ffmpeg/ffprobe not available to create test video")
+
+    with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
+        temp_path = Path(f.name)
+
+    try:
+        if not _make_test_video(temp_path):
+            pytest.skip("Could not create test video with ffmpeg")
+        assert video_utils.set_video_metadata_pyav(
+            str(temp_path), TEST_DATE, TEST_LAT, TEST_LON, "-05:00"
+        )
+
+        # Recreate the v10.0.5 defect: re-insert 4 version/flags bytes into the
+        # moov-level meta box (and grow the meta and moov sizes to match)
+        _, _, data, moov_children = _atom_structure(temp_path)
+        meta = next((s, e) for n, s, e in moov_children if n == b'meta')
+        moov = next((s, e) for n, s, e in video_utils._iter_boxes(data, 0, len(data))
+                    if n == b'moov')
+        broken = bytearray(data)
+        broken[meta[0]:meta[1]] = ((meta[1] - meta[0] + 4).to_bytes(4, 'big') + b'meta'
+                                   + b'\x00\x00\x00\x00' + data[meta[0] + 8:meta[1]])
+        broken[moov[0]:moov[0] + 4] = (moov[1] - moov[0] + 4).to_bytes(4, 'big')
+        temp_path.write_bytes(bytes(broken))
+        _, _, data, moov_children = _atom_structure(temp_path)
+        meta = next((s, e) for n, s, e in moov_children if n == b'meta')
+        assert video_utils._meta_children_offset(data, meta[0], meta[1]) == 12
+
+        # relocate_apple_metadata must strip the version/flags in place
+        assert video_utils.relocate_apple_metadata(str(temp_path), TEST_LAT, TEST_LON)
+        _, _, data, moov_children = _atom_structure(temp_path)
+        meta = next((s, e) for n, s, e in moov_children if n == b'meta')
+        assert video_utils._meta_children_offset(data, meta[0], meta[1]) == 8
+        assert video_utils._meta_has_mdta_handler(data, meta[0], meta[1])
+
+        is_valid, info = video_utils.validate_video_file(temp_path)
+        assert is_valid, f"File failed validation after repair: {info}"
     finally:
         if temp_path.exists():
             temp_path.unlink()
@@ -128,6 +178,9 @@ def test_set_video_metadata_ffmpeg_relocates_keys_meta():
 
         moov_names, udta_names, data, moov_children = _atom_structure(temp_path)
         assert b'meta' in moov_names, "meta box must be a direct child of moov"
+        meta = next((s, e) for n, s, e in moov_children if n == b'meta')
+        assert video_utils._meta_children_offset(data, meta[0], meta[1]) == 8, \
+            "moov-level meta must use QTFF layout (no version/flags)"
         assert b'\xa9xyz' in udta_names, "udta should contain a (C)xyz GPS atom"
 
         is_valid, info = video_utils.validate_video_file(temp_path)

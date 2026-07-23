@@ -560,11 +560,28 @@ def _iter_boxes(data, start, end):
         pos += size
 
 
+def _meta_children_offset(data, meta_start, meta_end):
+    """Offset of a 'meta' box's first child, handling both layouts.
+
+    ISO BMFF meta is a full box (4-byte version/flags before children);
+    QTFF movie-level meta is a plain container (children start immediately).
+    Detect by checking where the 'hdlr' fourcc lands. Returns None if neither.
+    """
+    if meta_end - meta_start >= 16 and bytes(data[meta_start + 12:meta_start + 16]) == b'hdlr':
+        return 8   # QTFF: no version/flags
+    if meta_end - meta_start >= 20 and bytes(data[meta_start + 16:meta_start + 20]) == b'hdlr':
+        return 12  # ISO: 4-byte version/flags first
+    return None
+
+
 def _meta_has_mdta_handler(data, meta_start, meta_end):
-    """True if a 'meta' box (ISO full-box layout) declares the mdta handler."""
-    # meta payload: 4-byte version/flags, then children; hdlr handler type is
-    # at offset 16 within the hdlr box (8 header + 4 version/flags + 4 predefined)
-    for name, s, e in _iter_boxes(data, meta_start + 12, meta_end):
+    """True if a 'meta' box declares the mdta (QuickTime Keys) handler."""
+    offset = _meta_children_offset(data, meta_start, meta_end)
+    if offset is None:
+        return False
+    # hdlr handler type is at offset 16 within the hdlr box
+    # (8 header + 4 version/flags + 4 predefined)
+    for name, s, e in _iter_boxes(data, meta_start + offset, meta_end):
         if name == b'hdlr' and e - s >= 20:
             return bytes(data[s + 16:s + 20]) == b'mdta'
     return False
@@ -580,11 +597,14 @@ def relocate_apple_metadata(file_path, latitude=None, longitude=None):
     use and the QuickTime File Format spec defines. Without this relocation,
     GPS tags exist in the file but macOS shows no location.
 
-    The move is size-neutral (bytes shuffle within moov), so chunk offsets in
-    stco/co64 remain valid regardless of where moov sits. When coordinates are
-    given and moov is the final top-level box (growing it cannot shift media
-    data), an Android-style (C)xyz GPS atom is also appended to udta for
-    broader player compatibility.
+    The moved box also has its ISO version/flags field stripped: QTFF defines
+    movie-level meta as a plain container, and Apple parsers read the 4 zero
+    bytes as a terminator atom, stopping before the GPS keys (confirmed via
+    exiftool and mdls on v10.0.5 output). All rewriting happens within moov;
+    when moov is not the final top-level box, any size change aborts the
+    rewrite so chunk offsets in stco/co64 can never be invalidated. When
+    coordinates are given and moov is last, an Android-style (C)xyz GPS atom
+    is also appended to udta for broader player compatibility.
 
     Returns True if the file now has a moov-level meta box (moved or already
     there), False if the structure could not be safely rewritten.
@@ -607,9 +627,29 @@ def relocate_apple_metadata(file_path, latitude=None, longitude=None):
         moov_is_last = moov_end == len(data)
 
         moov_children = list(_iter_boxes(data, moov_start + 8, moov_end))
-        if any(name == b'meta' for name, s, e in moov_children):
-            logging.debug("relocate_apple_metadata: moov-level meta already present in %s", file_path)
-            return True
+        moov_meta = next(((s, e) for name, s, e in moov_children if name == b'meta'), None)
+        if moov_meta is not None:
+            s, e = moov_meta
+            if _meta_children_offset(data, s, e) == 8:
+                logging.debug("relocate_apple_metadata: QTFF moov-level meta already present in %s", file_path)
+                return True
+            if _meta_children_offset(data, s, e) == 12 and moov_is_last:
+                # Repair a meta box relocated with the ISO version/flags still in
+                # place (v10.0.5 output): Apple parsers read those 4 zero bytes
+                # as a terminator atom and never reach the GPS keys.
+                fixed_meta = (e - s - 4).to_bytes(4, 'big') + b'meta' + data[s + 12:e]
+                moov_payload = bytearray()
+                for name, cs, ce in moov_children:
+                    moov_payload += fixed_meta if cs == s else data[cs:ce]
+                new_moov = (8 + len(moov_payload)).to_bytes(4, 'big') + b'moov' + moov_payload
+                temp_path = f"{file_path}.meta.tmp"
+                with open(temp_path, 'wb') as f:
+                    f.write(data[:moov_start])
+                    f.write(new_moov)
+                os.replace(temp_path, file_path)
+                logging.info("Stripped version/flags from moov-level meta for %s", file_path)
+                return True
+            return False
 
         udta = next(((s, e) for name, s, e in moov_children if name == b'udta'), None)
         if udta is None:
@@ -624,6 +664,14 @@ def relocate_apple_metadata(file_path, latitude=None, longitude=None):
             return False
         meta_start, meta_end = meta
         meta_bytes = data[meta_start:meta_end]
+        # QTFF movie-level 'meta' is a plain container, unlike the ISO full-box
+        # layout ffmpeg writes inside udta. Apple's parsers (Spotlight, Photos,
+        # Finder) treat the 4 zero version/flags bytes as a zero-length
+        # terminator atom and stop reading before the GPS keys, so strip them
+        # while moving the box to moov level.
+        if _meta_children_offset(data, meta_start, meta_end) == 12:
+            meta_bytes = ((meta_end - meta_start - 4).to_bytes(4, 'big') + b'meta'
+                          + data[meta_start + 12:meta_end])
 
         # Rebuild udta without the meta box (append (C)xyz if safe and wanted)
         udta_payload = data[udta_start + 8:meta_start] + data[meta_end:udta_end]
