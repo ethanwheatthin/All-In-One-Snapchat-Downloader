@@ -542,6 +542,136 @@ def set_video_metadata(file_path, date_obj, latitude, longitude, timezone_offset
         return False
 
 
+def _iter_boxes(data, start, end):
+    """Yield (name, box_start, box_end) for MP4 boxes in data[start:end]."""
+    pos = start
+    while pos + 8 <= end:
+        size = int.from_bytes(data[pos:pos + 4], 'big')
+        name = bytes(data[pos + 4:pos + 8])
+        if size == 0:  # box extends to end of enclosing container
+            size = end - pos
+        elif size == 1:  # 64-bit extended size
+            if pos + 16 > end:
+                return
+            size = int.from_bytes(data[pos + 8:pos + 16], 'big')
+        if size < 8 or pos + size > end:
+            return
+        yield name, pos, pos + size
+        pos += size
+
+
+def _meta_has_mdta_handler(data, meta_start, meta_end):
+    """True if a 'meta' box (ISO full-box layout) declares the mdta handler."""
+    # meta payload: 4-byte version/flags, then children; hdlr handler type is
+    # at offset 16 within the hdlr box (8 header + 4 version/flags + 4 predefined)
+    for name, s, e in _iter_boxes(data, meta_start + 12, meta_end):
+        if name == b'hdlr' and e - s >= 20:
+            return bytes(data[s + 16:s + 20]) == b'mdta'
+    return False
+
+
+def relocate_apple_metadata(file_path, latitude=None, longitude=None):
+    """Move the mdta Keys 'meta' box from moov/udta up to moov itself.
+
+    ffmpeg's mov muxer (and therefore PyAV, which drives the same muxer) writes
+    movflags=use_metadata_tags Keys metadata inside moov/udta/meta. ffprobe and
+    exiftool read it there, but Apple Photos/Finder/Spotlight only read Keys
+    from a 'meta' box that is a DIRECT child of 'moov' — the placement iPhones
+    use and the QuickTime File Format spec defines. Without this relocation,
+    GPS tags exist in the file but macOS shows no location.
+
+    The move is size-neutral (bytes shuffle within moov), so chunk offsets in
+    stco/co64 remain valid regardless of where moov sits. When coordinates are
+    given and moov is the final top-level box (growing it cannot shift media
+    data), an Android-style (C)xyz GPS atom is also appended to udta for
+    broader player compatibility.
+
+    Returns True if the file now has a moov-level meta box (moved or already
+    there), False if the structure could not be safely rewritten.
+    """
+    file_path = str(file_path)
+    try:
+        with open(file_path, 'rb') as f:
+            data = f.read()
+
+        top = list(_iter_boxes(data, 0, len(data)))
+        moov_list = [(s, e) for name, s, e in top if name == b'moov']
+        if len(moov_list) != 1:
+            logging.warning("relocate_apple_metadata: expected 1 moov, found %d in %s",
+                            len(moov_list), file_path)
+            return False
+        moov_start, moov_end = moov_list[0]
+        # Only handle plain 32-bit moov header (always the case for our writers)
+        if int.from_bytes(data[moov_start:moov_start + 4], 'big') in (0, 1):
+            return False
+        moov_is_last = moov_end == len(data)
+
+        moov_children = list(_iter_boxes(data, moov_start + 8, moov_end))
+        if any(name == b'meta' for name, s, e in moov_children):
+            logging.debug("relocate_apple_metadata: moov-level meta already present in %s", file_path)
+            return True
+
+        udta = next(((s, e) for name, s, e in moov_children if name == b'udta'), None)
+        if udta is None:
+            return False
+        udta_start, udta_end = udta
+        if int.from_bytes(data[udta_start:udta_start + 4], 'big') in (0, 1):
+            return False
+        udta_children = list(_iter_boxes(data, udta_start + 8, udta_end))
+        meta = next(((s, e) for name, s, e in udta_children
+                     if name == b'meta' and _meta_has_mdta_handler(data, s, e)), None)
+        if meta is None:
+            return False
+        meta_start, meta_end = meta
+        meta_bytes = data[meta_start:meta_end]
+
+        # Rebuild udta without the meta box (append (C)xyz if safe and wanted)
+        udta_payload = data[udta_start + 8:meta_start] + data[meta_end:udta_end]
+        has_xyz = any(name == b'\xa9xyz' for name, s, e in udta_children)
+        if (latitude is not None and longitude is not None
+                and not has_xyz and moov_is_last):
+            loc = f"{latitude:+.6f}{longitude:+.6f}/".encode('ascii')
+            xyz = ((12 + len(loc)).to_bytes(4, 'big') + b'\xa9xyz'
+                   + len(loc).to_bytes(2, 'big') + b'\x15\xc7' + loc)
+            udta_payload += xyz
+        new_udta = (8 + len(udta_payload)).to_bytes(4, 'big') + b'udta' + udta_payload
+
+        # Rebuild moov: original children with udta swapped, meta appended last
+        moov_payload = bytearray()
+        for name, s, e in moov_children:
+            if s == udta_start:
+                moov_payload += new_udta
+            else:
+                moov_payload += data[s:e]
+        moov_payload += meta_bytes
+        new_moov = (8 + len(moov_payload)).to_bytes(4, 'big') + b'moov' + moov_payload
+
+        # Unless moov is the final box, the rewrite must not change its size
+        # (anything after moov would shift and break chunk offsets)
+        if not moov_is_last and len(new_moov) != moov_end - moov_start:
+            logging.warning("relocate_apple_metadata: size change with trailing data in %s", file_path)
+            return False
+
+        temp_path = f"{file_path}.meta.tmp"
+        with open(temp_path, 'wb') as f:
+            f.write(data[:moov_start])
+            f.write(new_moov)
+            f.write(data[moov_end:])
+        os.replace(temp_path, file_path)
+        logging.info("Relocated Keys metadata to moov level for %s", file_path)
+        return True
+
+    except Exception:
+        logging.exception("relocate_apple_metadata failed for %s", file_path)
+        try:
+            temp_path = f"{file_path}.meta.tmp"
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+        except Exception:
+            pass
+        return False
+
+
 def set_video_metadata_pyav(file_path, date_obj, latitude, longitude, timezone_offset=None):
     """Set video metadata by remuxing with PyAV (no ffmpeg CLI required).
 
@@ -625,6 +755,11 @@ def set_video_metadata_pyav(file_path, date_obj, latitude, longitude, timezone_o
 
         if os.path.exists(temp_output) and os.path.getsize(temp_output) > 1000:
             os.replace(temp_output, file_path)
+            # ffmpeg's muxer leaves the Keys meta box in moov/udta where Apple
+            # software never looks — move it to moov level (iPhone placement)
+            if not relocate_apple_metadata(file_path, latitude, longitude):
+                logging.warning("Keys metadata left in moov/udta for %s; "
+                                "Apple Photos may not show location", file_path)
             logging.info(f"Successfully set video metadata using PyAV: {file_path}")
             return True
         logging.error(f"PyAV metadata remux produced no/empty output for {file_path}")
@@ -712,6 +847,11 @@ def set_video_metadata_ffmpeg(file_path, date_obj, latitude, longitude, timezone
             try:
                 os.remove(file_path)
                 os.rename(temp_output, file_path)
+                # ffmpeg writes the Keys meta box in moov/udta where Apple
+                # software never looks — move it to moov level (iPhone placement)
+                if not relocate_apple_metadata(file_path, latitude, longitude):
+                    logging.warning("Keys metadata left in moov/udta for %s; "
+                                    "Apple Photos may not show location", file_path)
                 logging.info(f"Successfully set video metadata using ffmpeg: {file_path}")
                 return True
             except Exception as e:
