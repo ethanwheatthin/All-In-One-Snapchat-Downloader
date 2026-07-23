@@ -148,6 +148,10 @@ def set_video_metadata_ffmpeg(file_path, date_obj, latitude, longitude, timezone
     """Set video metadata using ffmpeg if available. Delegates to video_utils."""
     return video_utils.set_video_metadata_ffmpeg(file_path, date_obj, latitude, longitude, timezone_offset)
 
+def set_video_metadata_pyav(file_path, date_obj, latitude, longitude, timezone_offset=None):
+    """Set video metadata using bundled PyAV (Apple-readable GPS, no ffmpeg CLI needed). Delegates to video_utils."""
+    return video_utils.set_video_metadata_pyav(file_path, date_obj, latitude, longitude, timezone_offset)
+
 def set_file_timestamps(file_path, date_obj):
     """Set file modification and access times. Delegates to snap_utils."""
     return snap_utils.set_file_timestamps(file_path, date_obj)
@@ -1696,14 +1700,25 @@ class SnapchatDownloaderGUI:
                                         log_local("    ✓ Set video metadata (ffmpeg)")
                                         metadata_set = True
                                 except Exception as ffmpeg_error:
-                                    log_local(f"    ℹ ffmpeg metadata setting failed, trying mutagen: {ffmpeg_error}")
+                                    log_local(f"    ℹ ffmpeg metadata setting failed, trying PyAV: {ffmpeg_error}")
 
-                                # Fall back to mutagen if ffmpeg didn't work
+                                # Fall back to PyAV remux (bundled; writes Apple-readable GPS)
+                                if not metadata_set and HAS_PYAV:
+                                    try:
+                                        if set_video_metadata_pyav(str(merged_path), date_obj_local, latitude, longitude, tz_offset):
+                                            log_local("    ✓ Set video metadata (PyAV)")
+                                            metadata_set = True
+                                    except Exception as pyav_error:
+                                        log_local(f"    ℹ PyAV metadata setting failed, trying mutagen: {pyav_error}")
+
+                                # Last resort: mutagen (Apple software can't read its GPS atoms)
                                 if not metadata_set and HAS_MUTAGEN:
                                     try:
                                         if set_video_metadata(str(merged_path), date_obj_local, latitude, longitude, tz_offset):
                                             log_local("    ✓ Set video metadata (mutagen)")
                                             metadata_set = True
+                                            if latitude is not None and longitude is not None:
+                                                log_local("    ⚠ Location saved in a format Apple Photos can't read — install ffmpeg for full GPS support")
                                     except Exception as metadata_error:
                                         log_local(f"    ⚠ Metadata error: {metadata_error}")
 
@@ -1799,12 +1814,23 @@ class SnapchatDownloaderGUI:
                         except Exception as ffmpeg_error:
                             logging.debug(f"ffmpeg metadata setting failed: {ffmpeg_error}")
 
-                        # Fall back to mutagen if ffmpeg didn't work
+                        # Fall back to PyAV remux (bundled; writes Apple-readable GPS)
+                        if not metadata_set and HAS_PYAV:
+                            try:
+                                if set_video_metadata_pyav(str(file_path), date_obj_local, latitude, longitude, tz_offset):
+                                    log_local("  ✓ Set video metadata (PyAV)")
+                                    metadata_set = True
+                            except Exception as pyav_error:
+                                logging.debug(f"PyAV metadata setting failed: {pyav_error}")
+
+                        # Last resort: mutagen (Apple software can't read its GPS atoms)
                         if not metadata_set and HAS_MUTAGEN:
                             try:
                                 if set_video_metadata(str(file_path), date_obj_local, latitude, longitude, tz_offset):
                                     log_local("  ✓ Set video metadata (mutagen)")
                                     metadata_set = True
+                                    if latitude is not None and longitude is not None:
+                                        log_local("  ⚠ Location saved in a format Apple Photos can't read — install ffmpeg for full GPS support")
                             except Exception as metadata_error:
                                 log_local(f"  ⚠ Metadata error: {metadata_error}")
 
@@ -1864,13 +1890,24 @@ class SnapchatDownloaderGUI:
                             metadata_updated = True
                     except Exception as ffmpeg_error:
                         logging.debug(f"ffmpeg metadata setting failed: {ffmpeg_error}")
-                    
+
+                    if not video_metadata_set and HAS_PYAV:
+                        try:
+                            if set_video_metadata_pyav(str(file_path), date_obj_local, latitude, longitude, tz_offset):
+                                log_local("  ✓ Updated video metadata (PyAV)")
+                                video_metadata_set = True
+                                metadata_updated = True
+                        except Exception as pyav_error:
+                            logging.debug(f"PyAV metadata setting failed: {pyav_error}")
+
                     if not video_metadata_set and HAS_MUTAGEN:
                         try:
                             if set_video_metadata(str(file_path), date_obj_local, latitude, longitude, tz_offset):
                                 log_local("  ✓ Updated video metadata (mutagen)")
                                 video_metadata_set = True
                                 metadata_updated = True
+                                if latitude is not None and longitude is not None:
+                                    log_local("  ⚠ Location saved in a format Apple Photos can't read — install ffmpeg for full GPS support")
                         except Exception as metadata_error:
                             log_local(f"  ⚠ Metadata error: {metadata_error}")
                     
@@ -2990,11 +3027,20 @@ def _apply_file_metadata(path, is_video, date_obj, lat, lon, tz_offset, log_fn):
                 meta_set = True
         except Exception:
             pass
+        if not meta_set and HAS_PYAV:
+            try:
+                if set_video_metadata_pyav(path, date_obj, lat, lon, tz_offset):
+                    log_fn("    ✓ Video metadata (PyAV)")
+                    meta_set = True
+            except Exception:
+                pass
         if not meta_set and HAS_MUTAGEN:
             try:
                 if set_video_metadata(path, date_obj, lat, lon, tz_offset):
                     log_fn("    ✓ Video metadata (mutagen)")
                     meta_set = True
+                    if lat is not None and lon is not None:
+                        log_fn("    ⚠ Location saved in a format Apple Photos can't read — install ffmpeg for full GPS support")
             except Exception as exc:
                 log_fn(f"    ⚠ Metadata error: {exc}")
         if not meta_set:

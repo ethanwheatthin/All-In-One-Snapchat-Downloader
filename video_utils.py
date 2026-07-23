@@ -497,6 +497,13 @@ def set_video_metadata(file_path, date_obj, latitude, longitude, timezone_offset
                     video["----:com.apple.quicktime:latitude"] = [str(latitude).encode('utf-8')]
                     video["----:com.apple.quicktime:longitude"] = [str(longitude).encode('utf-8')]
                 logging.info(f"Setting GPS metadata via mutagen: lat={latitude}, lon={longitude} for {file_path}")
+                # Freeform '----' atoms are iTunes-style app-private tags: Apple
+                # Photos/Finder/Spotlight only read GPS from mdta keys or udta
+                # (C)xyz/loci atoms, which mutagen cannot write.
+                logging.warning(
+                    "GPS written as freeform ilst atoms only; Apple software will not "
+                    "show a location for %s. Prefer the ffmpeg or PyAV writer.", file_path
+                )
             else:
                 logging.info(f"No GPS data available for video (mutagen): {file_path}")
 
@@ -530,6 +537,112 @@ def set_video_metadata(file_path, date_obj, latitude, longitude, timezone_offset
         if os.path.exists(backup_path):
             try:
                 os.remove(backup_path)
+            except Exception:
+                pass
+        return False
+
+
+def set_video_metadata_pyav(file_path, date_obj, latitude, longitude, timezone_offset=None):
+    """Set video metadata by remuxing with PyAV (no ffmpeg CLI required).
+
+    Writes the same QuickTime 'mdta' key metadata as the ffmpeg CLI path
+    (movflags=use_metadata_tags), which is the format Apple Photos/Finder/
+    Spotlight read GPS coordinates from. The packaged app bundles PyAV but not
+    an ffmpeg binary, so on machines without ffmpeg this is the only writer
+    that produces Apple-readable location metadata (mutagen can only write
+    iTunes-style freeform atoms, which Apple software ignores).
+
+    Args:
+        file_path: Path to the MP4 video file
+        date_obj: datetime object with timezone info (local time)
+        latitude: GPS latitude (or None)
+        longitude: GPS longitude (or None)
+        timezone_offset: Timezone offset string like '-05:00'
+    """
+    if not HAS_PYAV:
+        logging.debug("PyAV not available for metadata writing")
+        return False
+
+    file_path = str(file_path)
+    temp_output = f"{file_path}.temp.mp4"
+    input_container = None
+    output_container = None
+    try:
+        if timezone_offset:
+            creation_time_str = date_obj.strftime("%Y-%m-%dT%H:%M:%S") + timezone_offset
+        else:
+            creation_time_str = date_obj.strftime("%Y-%m-%dT%H:%M:%S") + "Z"
+
+        metadata = {
+            'creation_time': creation_time_str,
+            'date': creation_time_str,
+            'com.apple.quicktime.creationdate': creation_time_str,
+        }
+        if latitude is not None and longitude is not None:
+            location_iso = f'{latitude:+.6f}{longitude:+.6f}/'
+            metadata.update({
+                'location': location_iso,
+                'location-eng': f'{latitude}, {longitude}',
+                'com.apple.quicktime.location.ISO6709': location_iso,
+                'com.apple.quicktime.GPS.latitude': str(latitude),
+                'com.apple.quicktime.GPS.longitude': str(longitude),
+            })
+            logging.info(f"Adding GPS metadata via PyAV: lat={latitude}, lon={longitude}")
+        else:
+            logging.info(f"No GPS data available for video (PyAV): {file_path}")
+
+        input_container = av.open(file_path)
+        output_container = av.open(
+            temp_output, 'w', format='mp4',
+            options={'movflags': 'use_metadata_tags'}
+        )
+        output_container.metadata.update(metadata)
+
+        # Stream-copy (no re-encode): map each A/V stream to an output twin
+        stream_map = {}
+        for stream in input_container.streams:
+            if stream.type in ('video', 'audio'):
+                try:
+                    out_stream = output_container.add_stream_from_template(stream)
+                except AttributeError:
+                    # PyAV < 12 spelling
+                    out_stream = output_container.add_stream(template=stream)
+                stream_map[stream.index] = out_stream
+
+        for packet in input_container.demux():
+            if packet.dts is None:
+                continue  # flush/probe packets can't be muxed
+            out_stream = stream_map.get(packet.stream.index)
+            if out_stream is None:
+                continue
+            packet.stream = out_stream
+            output_container.mux(packet)
+
+        input_container.close()
+        input_container = None
+        output_container.close()
+        output_container = None
+
+        if os.path.exists(temp_output) and os.path.getsize(temp_output) > 1000:
+            os.replace(temp_output, file_path)
+            logging.info(f"Successfully set video metadata using PyAV: {file_path}")
+            return True
+        logging.error(f"PyAV metadata remux produced no/empty output for {file_path}")
+        if os.path.exists(temp_output):
+            os.remove(temp_output)
+        return False
+
+    except Exception:
+        logging.exception("PyAV metadata remux failed for %s", file_path)
+        for container in (input_container, output_container):
+            try:
+                if container:
+                    container.close()
+            except Exception:
+                pass
+        if os.path.exists(temp_output):
+            try:
+                os.remove(temp_output)
             except Exception:
                 pass
         return False
