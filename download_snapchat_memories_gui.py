@@ -804,6 +804,9 @@ class SnapchatDownloaderGUI:
         self.chat_media_path = tk.StringVar()
         self.is_local_mode = False  # Tracks which mode is active during processing
         self.skip_existing_local = tk.BooleanVar(value=False)
+        # Chat media only: sort output into one folder per conversation/group
+        # chat. Requires the export's json/ history to know the thread.
+        self.group_by_conversation = tk.BooleanVar(value=True)
         # Multi-segment video stitcher is disabled until we've tested it
         # against real exports; flip default back to True + re-add a
         # checkbox in wizard_ui.OptionsStep to re-enable.
@@ -961,6 +964,7 @@ class SnapchatDownloaderGUI:
             "skip_existing": self.skip_existing,
             "reconvert_videos": self.reconvert_videos,
             "skip_existing_local": self.skip_existing_local,
+            "group_by_conversation": self.group_by_conversation,
         }
 
     def _load_settings(self):
@@ -2726,6 +2730,18 @@ class SnapchatDownloaderGUI:
             if index is not None:
                 self.log(f"🔗 Matched to chat history: {direct:,} direct, "
                          f"{via_snap:,} via snap history, {zip_matched:,} snap bundles")
+
+            # Conversation folders need the export's history to know which
+            # thread a file came from; without it everything would land in a
+            # single "Unsorted" folder, which is worse than staying flat.
+            group_folders = self.group_by_conversation.get()
+            if group_folders and index is None:
+                group_folders = False
+                self.log("ℹ Grouping by conversation needs the export's json/ history — "
+                         "saving all files to one folder instead")
+            elif group_folders:
+                self.log("📁 Grouping into one folder per conversation / group chat")
+
             self.log(f"🖼 Overlay mode: {self.overlay_mode.get()}")
             self.log("🌍 Timezone: system (chat media has no GPS data)")
             self.log("")
@@ -2741,7 +2757,7 @@ class SnapchatDownloaderGUI:
                     break
                 idx += 1
                 logs, ok, was_skipped = self._process_chat_media_item(
-                    idx, total, record, None, output_path)
+                    idx, total, record, None, output_path, group_folders)
                 for line in logs:
                     self.log(line)
                 if was_skipped:
@@ -2776,7 +2792,8 @@ class SnapchatDownloaderGUI:
                         break
                     idx += 1
                     logs, ok, was_skipped = self._process_chat_media_item(
-                        idx, total, media_record, overlay_record, output_path)
+                        idx, total, media_record, overlay_record, output_path,
+                        group_folders)
                     if first_of_day:
                         logs[1:1] = ["  " + line.strip() for line in pair_logs]
                         if publisher:
@@ -2810,6 +2827,24 @@ class SnapchatDownloaderGUI:
             self.log("")
             self.log("━" * 40)
             self.log(f"✓ Processed: {success:,}   ⏭ Skipped: {skipped:,}   ✗ Errors: {errors:,}")
+
+            if group_folders and not self.stop_download:
+                counts = {}
+                for record in standalone:
+                    folder = chat_media_utils.conversation_folder(record)
+                    counts[folder] = counts.get(folder, 0) + 1
+                for kinds in zip_by_date.values():
+                    for record in kinds.get("media", []):
+                        folder = chat_media_utils.conversation_folder(record)
+                        counts[folder] = counts.get(folder, 0) + 1
+                unsorted_n = counts.pop(chat_media_utils.UNSORTED_FOLDER, 0)
+                self.log(f"📁 {len(counts):,} conversation folder(s):")
+                for folder, count in sorted(counts.items(), key=lambda kv: -kv[1]):
+                    self.log(f"    • {folder} — {count:,} file(s)")
+                if unsorted_n:
+                    self.log(f"    • {chat_media_utils.UNSORTED_FOLDER} — {unsorted_n:,} "
+                             f"file(s) that matched no conversation")
+
             self.log(f"Output: {output_path}")
 
         except Exception as exc:
@@ -2818,7 +2853,8 @@ class SnapchatDownloaderGUI:
         finally:
             self.download_complete()
 
-    def _process_chat_media_item(self, idx, total, record, overlay_record, output_path):
+    def _process_chat_media_item(self, idx, total, record, overlay_record, output_path,
+                                 group_folders=False):
         """Process one chat media file: name by capture time, merge overlay,
         write metadata. Returns (log_lines, ok, was_skipped)."""
         logs = [f"[{idx}/{total}] {record['fname']}"]
@@ -2854,7 +2890,15 @@ class SnapchatDownloaderGUI:
             date_str = local_dt.strftime("%Y%m%d_%H%M%S")
             overlay_mode = self.overlay_mode.get()
             out_name = f"{date_str}_{idx}{ext}"
-            out_file = str(output_path / out_name)
+
+            dest_dir = output_path
+            if group_folders:
+                folder = chat_media_utils.conversation_folder(record)
+                dest_dir = output_path / folder
+                dest_dir.mkdir(parents=True, exist_ok=True)
+                out_name = f"{folder}/{out_name}"
+
+            out_file = str(dest_dir / f"{date_str}_{idx}{ext}")
 
             if self.skip_existing_local.get() and os.path.exists(out_file):
                 log_local(f"  ⏭ Already exists → {out_name}")
@@ -2879,7 +2923,7 @@ class SnapchatDownloaderGUI:
 
                 if overlay_mode == "both":
                     orig_name = f"{date_str}_{idx}_original{ext}"
-                    orig_out = str(output_path / orig_name)
+                    orig_out = str(dest_dir / orig_name)
                     _copy_file_with_metadata(record["path"], orig_out, is_video, local_dt,
                                              None, None, tz_off_str, log_local)
                     log_local(f"  ✓ Saved original → {orig_name}")

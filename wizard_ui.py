@@ -839,6 +839,12 @@ class OptionsStep(WizardStep):
             self.adv_frame, text="Skip already-processed files in the output folder",
             variable=app.skip_existing_local, style="Card.TCheckbutton")
 
+        # chatmedia only
+        self.group_conv_check = ttk.Checkbutton(
+            self.adv_frame,
+            text="Sort into a folder per conversation / group chat (recommended)",
+            variable=app.group_by_conversation, style="Card.TCheckbutton")
+
         # all routes
         self.gps_check = ttk.Checkbutton(
             self.adv_frame, text="Use GPS coordinates to determine local timezone (recommended)",
@@ -886,7 +892,7 @@ class OptionsStep(WizardStep):
     def _layout_advanced(self):
         mode = self.app.mode.get()
         for widget in (self.retries_row, self.resume_check, self.reconvert_check,
-                       self.skip_local_check, self.gps_check):
+                       self.skip_local_check, self.group_conv_check, self.gps_check):
             widget.pack_forget()
         if mode == "download":
             self.retries_row.pack(anchor=tk.W, pady=(0, 8))
@@ -894,6 +900,8 @@ class OptionsStep(WizardStep):
             self._toggle_reconvert()
         else:
             self.skip_local_check.pack(anchor=tk.W, pady=(0, 4))
+            if mode == "chatmedia":
+                self.group_conv_check.pack(anchor=tk.W, pady=(0, 4))
         self.gps_check.pack(anchor=tk.W, pady=(4, 0))
 
     def _toggle_reconvert(self):
@@ -982,13 +990,8 @@ class RunStep(WizardStep):
         card = ttk.Frame(parent, style="Card.TFrame", padding=12)
         card.grid(row=0, column=1, sticky="nsew", padx=(14, 0))
 
-        tk.Label(card, text="☕ Enjoying the app?", bg=CARD, fg=TEXT,
+        tk.Label(card, text="Enjoying the app?", bg=CARD, fg=TEXT,
                  font=("Segoe UI", 10, "bold")).pack(anchor=tk.W)
-        tk.Label(card, text="This tool is free — if it saved your memories, "
-                            "you can buy me a coffee to keep development going.",
-                 bg=CARD, fg=MUTED, font=("Segoe UI", 9),
-                 wraplength=180, justify=tk.LEFT).pack(anchor=tk.W, pady=(2, 10))
-
         # QR code — scan with a phone instead of clicking
         try:
             self._venmo_qr = tk.PhotoImage(file=resource_path(
@@ -1028,6 +1031,9 @@ class RunStep(WizardStep):
                 extras.append("resume mode")
         elif app.skip_existing_local.get():
             extras.append("skip already-processed")
+        if mode == "chatmedia":
+            extras.append("one folder per conversation" if app.group_by_conversation.get()
+                          else "single output folder")
         extras.append("GPS timezone" if app.use_gps_tz.get() else "system timezone")
         rows.append(("Settings", ", ".join(extras)))
         return rows

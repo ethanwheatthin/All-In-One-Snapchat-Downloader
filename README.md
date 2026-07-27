@@ -171,10 +171,12 @@ mydata~XXX/
 - **Sender info** — the log shows who sent each file and in which conversation
 - **Caption merging** — `media~` and `overlay~` files from the same snap are paired and merged. When several snaps share a date, the app verifies pairings against the export's thumbnails; captions that can't be confidently paired are never merged onto the wrong photo — they're preserved in an `unmatched_overlays/` folder instead
 - **Metadata fixing** — EXIF dates (images), embedded creation dates (videos), and file created/modified timestamps are all set to the real capture time, so files sort correctly in your photo library
+- **One folder per conversation** — output is sorted into a subfolder named after the message thread or group chat each file came from (on by default; turn it off under **Advanced options** on the Options step to save everything into one flat folder)
 - Output files are named by capture time: `YYYYMMDD_HHMMSS_<n>.jpg` / `.mp4`
 
 > **Notes:**
 > - Chat media contains **no GPS data** (unlike memories), so timestamps use your system timezone and no location is embedded.
+> - Conversation folders are named from your chat history: the group's title for group chats, the other person's username for one-to-one threads. Files the app couldn't match to any conversation go to an `Unsorted/` folder, and grouping is skipped entirely if the export has no `json/` history to identify threads with.
 > - Thumbnails and metadata sidecar files from the export are consumed during processing but not copied to the output — they contain no unique media.
 > - A few files in some exports are stored in an unreadable (likely encrypted) format; these are listed in the log and skipped.
 > - If the `json/` folder is missing, the mode still works — it just falls back to embedded video timestamps and filename dates.

@@ -648,6 +648,54 @@ def pair_overlays(kinds, log_fn=None):
     return pairs, left_overlays
 
 
+# ==================== Conversation foldering ====================
+
+UNSORTED_FOLDER = 'Unsorted'
+
+# Windows forbids these characters outright; strip them everywhere so the
+# same folder names work on a drive later moved between platforms.
+_INVALID_FS_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+_RESERVED_NAMES = {'CON', 'PRN', 'AUX', 'NUL'} | \
+    {f'COM{i}' for i in range(1, 10)} | {f'LPT{i}' for i in range(1, 10)}
+
+
+def sanitize_folder_name(name, fallback=UNSORTED_FOLDER, max_len=60):
+    """Turn a conversation title into a portable folder name.
+
+    Group titles and usernames are user-controlled text, so they can carry
+    emoji, slashes, or trailing dots that Windows silently mangles. Returns
+    `fallback` when nothing usable survives.
+    """
+    cleaned = _INVALID_FS_CHARS.sub('_', (name or '').strip())
+    cleaned = ' '.join(cleaned.split())
+    # A title like 'Ski/Trip: "24"' turns into a run of separators — collapse
+    # them so the folder reads as 'Ski_Trip_24', not 'Ski_Trip_ _24_'.
+    cleaned = re.sub(r'[\s_]*_[\s_]*', '_', cleaned)
+    # Windows drops trailing dots/spaces from directory names, which would
+    # make the created folder differ from the one we then write into.
+    cleaned = cleaned.rstrip('._ ')
+    if len(cleaned) > max_len:
+        cleaned = cleaned[:max_len].rstrip('._ ')
+    if not cleaned:
+        return fallback
+    if cleaned.upper() in _RESERVED_NAMES or \
+            cleaned.split('.')[0].upper() in _RESERVED_NAMES:
+        return f'{cleaned}_'
+    return cleaned
+
+
+def conversation_folder(record, fallback=UNSORTED_FOLDER):
+    """Folder name for the thread/group a media record came from.
+
+    Only records matched to chat or snap history know their conversation;
+    everything else lands in `fallback` rather than being guessed at.
+    """
+    match = record.get('match')
+    if match is None:
+        return fallback
+    return sanitize_folder_name(match.get('_conversation'), fallback)
+
+
 # ==================== Sidecar metadata ====================
 
 def parse_metadata_sidecar(path):
