@@ -15,6 +15,41 @@ except Exception as e:
     _TIMEZONE_IMPORT_ERROR = e
     logging.debug("Timezone support libraries not available: %s", e, exc_info=True)
 
+# TimezoneFinder loads a large geo dataset; constructing it per file made
+# resume/skip checks take ~1s each. Keep one shared instance (+ tz cache).
+_timezone_finder = None
+_pytz_cache = {}
+_system_tz = None
+
+
+def _get_timezone_finder():
+    global _timezone_finder
+    if _timezone_finder is None and HAS_TIMEZONE_SUPPORT:
+        _timezone_finder = TimezoneFinder()
+    return _timezone_finder
+
+
+def _get_pytz(tz_name):
+    tz = _pytz_cache.get(tz_name)
+    if tz is None:
+        tz = pytz.timezone(tz_name)
+        _pytz_cache[tz_name] = tz
+    return tz
+
+
+def _get_system_tz():
+    global _system_tz
+    if _system_tz is not None:
+        return _system_tz
+    local_tz = _get_pytz('UTC')
+    try:
+        import tzlocal
+        local_tz = _get_pytz(tzlocal.get_localzone_name())
+    except Exception:
+        pass
+    _system_tz = local_tz
+    return _system_tz
+
 
 def parse_date(date_str):
     """Parse date string from JSON format to timezone-aware datetime object.
@@ -61,10 +96,10 @@ def convert_to_local_timezone(utc_datetime, latitude, longitude, force_system_tz
     # Try GPS-based timezone lookup if coordinates are available
     if not force_system_tz and latitude is not None and longitude is not None:
         try:
-            tf = TimezoneFinder()
-            tz_name = tf.timezone_at(lat=latitude, lng=longitude)
+            tf = _get_timezone_finder()
+            tz_name = tf.timezone_at(lat=latitude, lng=longitude) if tf else None
             if tz_name:
-                local_tz = pytz.timezone(tz_name)
+                local_tz = _get_pytz(tz_name)
                 local_dt = utc_datetime.astimezone(local_tz)
                 offset_str = local_dt.strftime("%z")
                 offset_str = (offset_str[:-2] + ":" + offset_str[-2:]) if len(offset_str) >= 5 else "+00:00"
@@ -82,15 +117,7 @@ def convert_to_local_timezone(utc_datetime, latitude, longitude, force_system_tz
     
     # Fall back to system timezone
     try:
-        local_tz = pytz.timezone('UTC')
-        try:
-            import tzlocal
-            local_tz_str = tzlocal.get_localzone_name()
-            local_tz = pytz.timezone(local_tz_str)
-        except Exception:
-            # Fallback: try to detect from system
-            pass
-        
+        local_tz = _get_system_tz()
         local_dt = utc_datetime.astimezone(local_tz)
         offset_str = local_dt.strftime("%z")
         offset_str = (offset_str[:-2] + ":" + offset_str[-2:]) if len(offset_str) >= 5 else "+00:00"

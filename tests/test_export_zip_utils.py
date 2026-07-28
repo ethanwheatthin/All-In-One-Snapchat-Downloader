@@ -92,6 +92,20 @@ def test_extract_skips_existing_files(export_dir):
     assert stats["skipped"] == 7
 
 
+def test_extract_stamp_marks_complete_and_detects_changes(export_dir):
+    zips = export_zip_utils.find_export_zips(str(export_dir))
+    dest = export_zip_utils.default_extract_root(str(export_dir))
+    assert not export_zip_utils.extract_is_up_to_date(dest, zips)
+
+    export_zip_utils.extract_export_zips(zips, dest)
+    assert export_zip_utils.extract_is_up_to_date(dest, zips)
+    assert os.path.isfile(export_zip_utils.extract_stamp_path(dest))
+
+    # Touching a source ZIP invalidates the stamp so a re-run re-checks.
+    os.utime(zips[0], None)
+    assert not export_zip_utils.extract_is_up_to_date(dest, zips)
+
+
 def test_extract_reports_progress_and_stops(export_dir):
     zips = export_zip_utils.find_export_zips(str(export_dir))
     dest = export_zip_utils.default_extract_root(str(export_dir))
