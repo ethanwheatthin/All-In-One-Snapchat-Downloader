@@ -740,6 +740,21 @@ def get_file_extension(media_type):
     else:
         return ".bin"
 
+def get_memory_output_dir(output_root, date_obj, create=True):
+    """Return the Year/Month/Day subfolder (under output_root) for a memory's local date.
+
+    e.g. output_root/2024/01 - January/2024-01-15
+    """
+    day_dir = (
+        Path(output_root)
+        / date_obj.strftime("%Y")
+        / date_obj.strftime("%m - %B")
+        / date_obj.strftime("%Y-%m-%d")
+    )
+    if create:
+        day_dir.mkdir(parents=True, exist_ok=True)
+    return day_dir
+
 # ==================== GUI Application ====================
 
 # --- Wrappers to refactored modules (override long original implementations) ---
@@ -1435,7 +1450,7 @@ class SnapchatDownloaderGUI:
         
         cleaned_count = 0
         for pattern in temp_patterns:
-            for temp_file in output_path.glob(pattern):
+            for temp_file in output_path.rglob(pattern):
                 try:
                     temp_file.unlink()
                     cleaned_count += 1
@@ -1478,46 +1493,51 @@ class SnapchatDownloaderGUI:
         # Generate both local and UTC formatted dates for backward compatibility
         date_formatted_local = date_obj_local.strftime("%Y%m%d_%H%M%S")
         date_formatted_utc = date_obj.strftime("%Y%m%d_%H%M%S")
-        
-        # We'll check patterns for both local (preferred) and UTC (legacy) timestamps
-        date_patterns = [date_formatted_local]
+
+        # We'll check patterns for both local (preferred) and UTC (legacy) timestamps,
+        # each paired with the date used to derive its Year/Month/Day folder
+        date_patterns = [(date_formatted_local, date_obj_local)]
         if date_formatted_utc != date_formatted_local:  # Only check UTC if different
-            date_patterns.append(date_formatted_utc)
-        
+            date_patterns.append((date_formatted_utc, date_obj))
+
         # Check 1: Normal download filename (YYYYMMDD_HHMMSS_idx.ext)
-        # Check both local and UTC patterns for backward compatibility
-        for date_formatted in date_patterns:
-            normal_filename = f"{date_formatted}_{idx}{extension}"
-            normal_path = output_path / normal_filename
-            if normal_path.exists():
-                if validate_downloaded_file(str(normal_path)):
-                    return True, str(normal_path), "normal download"
-                else:
-                    logging.warning(f"Found invalid existing file, will re-download: {normal_path}")
-                    return False, None, "invalid file"
-            
-            # Check 2: Merged overlay filename (YYYYMMDD_HHMMSS.ext) - no idx suffix
-            # This pattern is created when ZIP files contain -main/-overlay pairs
-            merged_base = f"{date_formatted}{extension}"
-            merged_path = output_path / merged_base
-            if merged_path.exists():
-                if validate_downloaded_file(str(merged_path)):
-                    return True, str(merged_path), "merged overlay"
-                else:
-                    logging.warning(f"Found invalid merged file, will re-download: {merged_path}")
-                    return False, None, "invalid merged"
-            
-            # Check 3: Collision-resolved merged files (YYYYMMDD_HHMMSS_1.ext, _2.ext, ...)
-            # When multiple overlays have the same timestamp, counter suffixes are added
-            for count in range(1, 11):  # Reasonable upper bound
-                collision_name = f"{date_formatted}_{count}{extension}"
-                collision_path = output_path / collision_name
-                if collision_path.exists():
-                    if validate_downloaded_file(str(collision_path)):
-                        return True, str(collision_path), f"collision-resolved merge (_{count})"
+        # Check both local and UTC patterns for backward compatibility, in both the
+        # current Year/Month/Day folder and the flat root (files from before this
+        # folder structure was added)
+        for date_formatted, date_for_dir in date_patterns:
+            nested_dir = get_memory_output_dir(output_path, date_for_dir, create=False)
+            for search_dir in (nested_dir, output_path):
+                normal_filename = f"{date_formatted}_{idx}{extension}"
+                normal_path = search_dir / normal_filename
+                if normal_path.exists():
+                    if validate_downloaded_file(str(normal_path)):
+                        return True, str(normal_path), "normal download"
                     else:
-                        logging.warning(f"Found invalid collision file, will re-download: {collision_path}")
-                        return False, None, "invalid collision"
+                        logging.warning(f"Found invalid existing file, will re-download: {normal_path}")
+                        return False, None, "invalid file"
+
+                # Check 2: Merged overlay filename (YYYYMMDD_HHMMSS.ext) - no idx suffix
+                # This pattern is created when ZIP files contain -main/-overlay pairs
+                merged_base = f"{date_formatted}{extension}"
+                merged_path = search_dir / merged_base
+                if merged_path.exists():
+                    if validate_downloaded_file(str(merged_path)):
+                        return True, str(merged_path), "merged overlay"
+                    else:
+                        logging.warning(f"Found invalid merged file, will re-download: {merged_path}")
+                        return False, None, "invalid merged"
+
+                # Check 3: Collision-resolved merged files (YYYYMMDD_HHMMSS_1.ext, _2.ext, ...)
+                # When multiple overlays have the same timestamp, counter suffixes are added
+                for count in range(1, 11):  # Reasonable upper bound
+                    collision_name = f"{date_formatted}_{count}{extension}"
+                    collision_path = search_dir / collision_name
+                    if collision_path.exists():
+                        if validate_downloaded_file(str(collision_path)):
+                            return True, str(collision_path), f"collision-resolved merge (_{count})"
+                        else:
+                            logging.warning(f"Found invalid collision file, will re-download: {collision_path}")
+                            return False, None, "invalid collision"
         
         # Check 4: Failed conversions directory (use local timezone pattern)
         normal_filename_local = f"{date_formatted_local}_{idx}{extension}"
@@ -1621,11 +1641,12 @@ class SnapchatDownloaderGUI:
                 date_obj_local = date_obj
                 tz_offset = "+00:00"
 
-            # Generate filename
+            # Generate filename, sorted into a Year/Month/Day folder
             date_formatted = date_obj_local.strftime("%Y%m%d_%H%M%S")
             extension = get_file_extension(media_type)
             filename = f"{date_formatted}_{idx}{extension}"
-            file_path = output_path / filename
+            media_output_dir = get_memory_output_dir(output_path, date_obj_local)
+            file_path = media_output_dir / filename
 
             log_local(f"  File: {filename}")
             log_local(f"  Type: {media_type}")
@@ -2529,6 +2550,7 @@ class SnapchatDownloaderGUI:
                             )
                             date_str_preview = local_dt_skip.strftime("%Y%m%d_%H%M%S")
                         except Exception:
+                            local_dt_skip = utc_mtime
                             date_str_preview = utc_mtime.strftime("%Y%m%d_%H%M%S")
 
                         # Build the full set of outputs this file would produce
@@ -2541,7 +2563,13 @@ class SnapchatDownloaderGUI:
                         if has_overlay_skip and overlay_mode_skip == "both":
                             expected.append(f"{date_str_preview}_{global_idx}_original{ext}")
 
-                        if all((output_path / n).exists() for n in expected):
+                        # Check the Year/Month/Day folder (current behavior) as well as
+                        # the flat root (files placed before this folder structure existed)
+                        media_output_dir_skip = get_memory_output_dir(output_path, local_dt_skip, create=False)
+                        if all(
+                            (media_output_dir_skip / n).exists() or (output_path / n).exists()
+                            for n in expected
+                        ):
                             self.log(
                                 f"[{global_idx}/{grand_total}] ↷ Skipped "
                                 f"(already exists: {expected[0]})",
@@ -2996,9 +3024,12 @@ class SnapchatDownloaderGUI:
             has_overlay = overlay_path and os.path.exists(overlay_path)
             primary_output = None
 
+            # Sort into a Year/Month/Day folder under output_path
+            media_output_dir = get_memory_output_dir(output_path, local_dt)
+
             if has_overlay and overlay_mode in ("merge", "both"):
                 out_name = f"{date_str}_{idx}{ext}"
-                out_file = str(output_path / out_name)
+                out_file = str(media_output_dir / out_name)
 
                 if is_video:
                     ok, result = merge_video_overlay(file_path, overlay_path, out_file)
@@ -3012,21 +3043,21 @@ class SnapchatDownloaderGUI:
                     primary_output = out_file
                 else:
                     log_local(f"  ⚠ Merge failed ({result}), copying original instead")
-                    out_file = str(output_path / out_name)
+                    out_file = str(media_output_dir / out_name)
                     _copy_file_with_metadata(file_path, out_file, is_video, local_dt,
                                              latitude, longitude, tz_off_str, log_local)
                     primary_output = out_file
 
                 if overlay_mode == "both":
                     orig_name = f"{date_str}_{idx}_original{ext}"
-                    orig_out = str(output_path / orig_name)
+                    orig_out = str(media_output_dir / orig_name)
                     _copy_file_with_metadata(file_path, orig_out, is_video, local_dt,
                                              latitude, longitude, tz_off_str, log_local)
                     log_local(f"  ✓ Saved original → {orig_name}")
 
             else:
                 out_name = f"{date_str}_{idx}{ext}"
-                out_file = str(output_path / out_name)
+                out_file = str(media_output_dir / out_name)
                 _copy_file_with_metadata(file_path, out_file, is_video, local_dt,
                                          latitude, longitude, tz_off_str, log_local)
                 log_local(f"  ✓ → {out_name}")
