@@ -13,8 +13,12 @@ Extraction restores each file's modification time from the ZIP entry
 uses the export's file times as a timestamp source. Already-extracted
 files with a matching size are skipped, so an interrupted extraction
 resumes where it left off.
+
+A stamp file records which ZIPs were fully extracted; on later runs the
+app skips the expensive per-member re-scan when those ZIPs are unchanged.
 """
 
+import json
 import logging
 import os
 import time
@@ -25,6 +29,7 @@ from datetime import datetime
 EXPORT_TOP_LEVEL_HINTS = ("memories", "chat_media", "json", "html", "index.html")
 
 EXTRACT_DIRNAME = "extracted"
+EXTRACT_STAMP_NAME = ".export_extract_stamp.json"
 
 MEMORIES_JSON_SUFFIX = "json/memories_history.json"
 
@@ -32,6 +37,58 @@ MEMORIES_JSON_SUFFIX = "json/memories_history.json"
 def default_extract_root(zip_dir):
     """Where a folder of export ZIPs gets extracted to."""
     return os.path.join(zip_dir, EXTRACT_DIRNAME)
+
+
+def _zip_fingerprint(zip_paths):
+    """Stable identity for a set of export ZIPs (name + size + mtime)."""
+    rows = []
+    for path in zip_paths:
+        try:
+            st = os.stat(path)
+            rows.append({
+                "name": os.path.basename(path),
+                "size": st.st_size,
+                "mtime_ns": getattr(st, "st_mtime_ns", int(st.st_mtime * 1_000_000_000)),
+            })
+        except OSError:
+            rows.append({"name": os.path.basename(path), "size": None, "mtime_ns": None})
+    rows.sort(key=lambda r: r["name"])
+    return rows
+
+
+def extract_stamp_path(dest_root):
+    return os.path.join(dest_root, EXTRACT_STAMP_NAME)
+
+
+def write_extract_stamp(dest_root, zip_paths):
+    """Record that dest_root is a complete extract of these ZIPs."""
+    payload = {
+        "version": 1,
+        "zips": _zip_fingerprint(zip_paths),
+        "completed_at": time.time(),
+    }
+    path = extract_stamp_path(dest_root)
+    try:
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, indent=2)
+    except OSError as exc:
+        logging.warning(f"Could not write extract stamp {path}: {exc}")
+
+
+def extract_is_up_to_date(dest_root, zip_paths):
+    """True when dest_root was fully extracted from these exact ZIPs already."""
+    if not zip_paths or not os.path.isdir(dest_root):
+        return False
+    path = extract_stamp_path(dest_root)
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+    except (OSError, json.JSONDecodeError, TypeError):
+        return False
+    stamped = payload.get("zips")
+    if not isinstance(stamped, list):
+        return False
+    return stamped == _zip_fingerprint(zip_paths)
 
 
 def looks_like_export_zip(zip_path):
@@ -166,6 +223,7 @@ def extract_export_zips(zip_paths, dest_root, log=None, progress=None, stop_chec
         stats["total"] += count
 
     done = 0
+    last_progress_at = 0.0
     for zip_path in zip_paths:
         if per_zip_counts.get(zip_path) is None:
             continue
@@ -210,10 +268,19 @@ def extract_export_zips(zip_paths, dest_root, log=None, progress=None, stop_chec
                             f"Failed to extract {info.filename} from "
                             f"{os.path.basename(zip_path)}: {exc}")
                         stats["errors"] += 1
-                    if progress:
+                    # Throttle UI progress — per-file redraws dominate on
+                    # large exports when almost everything is already present.
+                    if progress and (done == stats["total"]
+                                     or done % 200 == 0
+                                     or time.monotonic() - last_progress_at >= 0.25):
                         progress(done, stats["total"])
+                        last_progress_at = time.monotonic()
         except Exception as exc:
             if log:
                 log(f"⚠ Error reading {os.path.basename(zip_path)}: {exc}")
             stats["errors"] += 1
+
+    if not stats["aborted"] and stats["errors"] == 0 and zip_paths:
+        write_extract_stamp(dest_root, [p for p in zip_paths
+                                        if per_zip_counts.get(p) is not None])
     return stats

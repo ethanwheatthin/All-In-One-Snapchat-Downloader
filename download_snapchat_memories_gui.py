@@ -1201,11 +1201,16 @@ class SnapchatDownloaderGUI:
         tools_str = " & ".join(tools)
         return f"✓ Conversion available via {tools_str}. Videos will be converted to H.264 for Windows compatibility."
     
-    def log(self, message):
-        """Add message to log area."""
+    def log(self, message, *, refresh=True):
+        """Add message to log area.
+
+        refresh=False skips the per-line UI flush — useful when dumping many
+        resume-skip lines so the worker isn't blocked on tk redraws.
+        """
         self.log_text.insert(tk.END, message + "\n")
         self.log_text.see(tk.END)
-        self.root.update_idletasks()
+        if refresh:
+            self.root.update_idletasks()
     
     def update_progress(self, current, total, is_resume_mode=False):
         """Update progress bar.
@@ -2235,6 +2240,11 @@ class SnapchatDownloaderGUI:
         if not zips:
             return root_dir
         dest = export_zip_utils.default_extract_root(root_dir)
+        if export_zip_utils.extract_is_up_to_date(dest, zips):
+            self.log(f"✓ Using existing extraction ({len(zips)} ZIPs unchanged)")
+            self.log(f"📂 {dest}")
+            self.log("")
+            return dest
         size = export_zip_utils.format_size(export_zip_utils.total_zip_size(zips))
         self.log(f"📦 Found {len(zips)} Snapchat export ZIP(s) ({size})")
         self.log(f"📂 Extracting to: {dest}")
@@ -2532,9 +2542,11 @@ class SnapchatDownloaderGUI:
                             expected.append(f"{date_str_preview}_{global_idx}_original{ext}")
 
                         if all((output_path / n).exists() for n in expected):
-                            self.log(f"[{global_idx}/{grand_total}] {fname}")
-                            self.log(f"  ↷ Skipped (already exists: {expected[0]})")
-                            self.log("")
+                            self.log(
+                                f"[{global_idx}/{grand_total}] ↷ Skipped "
+                                f"(already exists: {expected[0]})",
+                                refresh=(global_idx % 25 == 0 or global_idx == grand_total),
+                            )
                             total_skipped += 1
                             folder_success += 1
                             self.update_progress(global_idx, grand_total, is_resume_mode=False)
