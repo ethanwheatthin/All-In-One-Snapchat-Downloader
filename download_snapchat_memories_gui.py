@@ -93,6 +93,12 @@ logging.basicConfig(
 import snap_utils, exif_utils, video_utils, zip_utils, downloader
 import chat_media_utils
 import export_zip_utils
+from fs_utils import is_macos_metadata
+
+
+def _is_main_media(fname):
+    """A processable original (-main) media file, not a macOS sidecar."""
+    return "-main" in fname and not is_macos_metadata(fname)
 from wizard_ui import (ScrollableFrame, WizardController,
                        TaskStep, SourceStep, OptionsStep, RunStep)
 
@@ -355,8 +361,10 @@ def process_zip_overlay(zip_path, output_dir, date_obj=None):
 
         with zipfile.ZipFile(zip_path, 'r') as z:
             # Inspect zip member names (this looks deep into nested folders)
-            namelist = [n for n in z.namelist() if not n.endswith('/')]
-            z.extractall(temp_dir)
+            namelist = [n for n in z.namelist()
+                        if not n.endswith('/') and not is_macos_metadata(n)]
+            for member in namelist:
+                z.extract(member, temp_dir)
 
             # Build map by base name from zip members (ignore differing extensions)
             pattern_main = re.compile(r'(?P<base>.+)-main(?P<ext>\.[^.]+)$', re.IGNORECASE)
@@ -1028,12 +1036,12 @@ class SnapchatDownloaderGUI:
                      "ZIPs, the memories/ folder, or its parent"
             )
         elif len(folders) == 1:
-            count = len([f for f in os.listdir(folders[0]) if "-main" in f])
+            count = len([f for f in os.listdir(folders[0]) if _is_main_media(f)])
             self.memories_section_info.config(
                 text=f"✓ 1 memories folder found — {count:,} files ready to process"
             )
         else:
-            total = sum(len([f for f in os.listdir(d) if "-main" in f]) for d in folders)
+            total = sum(len([f for f in os.listdir(d) if _is_main_media(f)]) for d in folders)
             self.memories_section_info.config(
                 text=f"✓ {len(folders)} memories folders found — {total:,} total files ready to process"
             )
@@ -2314,7 +2322,7 @@ class SnapchatDownloaderGUI:
 
             self.log(f"Found {len(memories_folders)} memories folder(s):")
             for mdir in memories_folders:
-                cnt = len([f for f in os.listdir(mdir) if "-main" in f])
+                cnt = len([f for f in os.listdir(mdir) if _is_main_media(f)])
                 self.log(f"  • {mdir}  ({cnt:,} files)")
             self.log("")
 
@@ -2420,7 +2428,7 @@ class SnapchatDownloaderGUI:
 
             all_folder_files = []
             for mdir in memories_folders:
-                files = sorted([f for f in os.listdir(mdir) if "-main" in f])
+                files = sorted([f for f in os.listdir(mdir) if _is_main_media(f)])
                 all_folder_files.append((mdir, files))
             grand_total = sum(len(files) for _, files in all_folder_files)
 
@@ -3077,13 +3085,13 @@ def find_memories_folders(root_dir):
     except Exception:
         return []
 
-    if any("-main" in f for f in entries):
+    if any(_is_main_media(f) for f in entries):
         return [root_dir]
 
     direct_mem = os.path.join(root_dir, "memories")
     if os.path.isdir(direct_mem):
         try:
-            if any("-main" in f for f in os.listdir(direct_mem)):
+            if any(_is_main_media(f) for f in os.listdir(direct_mem)):
                 return [direct_mem]
         except Exception:
             pass
@@ -3096,7 +3104,7 @@ def find_memories_folders(root_dir):
         mem_path = os.path.join(item_path, "memories")
         if os.path.isdir(mem_path):
             try:
-                if any("-main" in f for f in os.listdir(mem_path)):
+                if any(_is_main_media(f) for f in os.listdir(mem_path)):
                     found.append(mem_path)
             except Exception:
                 pass

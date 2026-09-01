@@ -23,6 +23,8 @@ import logging
 import os
 import time
 import zipfile
+
+from fs_utils import is_macos_metadata
 from datetime import datetime
 
 # Top-level names that identify a Snapchat export ZIP
@@ -96,6 +98,8 @@ def looks_like_export_zip(zip_path):
     try:
         with zipfile.ZipFile(zip_path) as z:
             for name in z.namelist():
+                if is_macos_metadata(name):
+                    continue
                 top = name.split("/", 1)[0]
                 if top in EXPORT_TOP_LEVEL_HINTS:
                     return True
@@ -165,7 +169,8 @@ def extract_memories_json(zip_paths, dest_root):
         try:
             with zipfile.ZipFile(zip_path) as z:
                 infos = [i for i in z.infolist()
-                         if not i.is_dir() and i.filename.startswith("json/")]
+                         if not i.is_dir() and i.filename.startswith("json/")
+                         and not is_macos_metadata(i.filename)]
                 if not any(i.filename.endswith(MEMORIES_JSON_SUFFIX) for i in infos):
                     continue
                 dest_root_abs = os.path.abspath(dest_root)
@@ -213,7 +218,8 @@ def extract_export_zips(zip_paths, dest_root, log=None, progress=None, stop_chec
     for zip_path in zip_paths:
         try:
             with zipfile.ZipFile(zip_path) as z:
-                count = sum(1 for i in z.infolist() if not i.is_dir())
+                count = sum(1 for i in z.infolist()
+                            if not i.is_dir() and not is_macos_metadata(i.filename))
         except Exception as exc:
             if log:
                 log(f"⚠ Skipping unreadable ZIP {os.path.basename(zip_path)}: {exc}")
@@ -237,7 +243,7 @@ def extract_export_zips(zip_paths, dest_root, log=None, progress=None, stop_chec
         try:
             with zipfile.ZipFile(zip_path) as z:
                 for info in z.infolist():
-                    if info.is_dir():
+                    if info.is_dir() or is_macos_metadata(info.filename):
                         continue
                     if stop_check and stop_check():
                         stats["aborted"] = True

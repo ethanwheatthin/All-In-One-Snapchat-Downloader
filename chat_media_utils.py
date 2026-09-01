@@ -34,6 +34,8 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+from fs_utils import is_macos_metadata
+
 CREATE_NO_WINDOW = 0x08000000 if sys.platform == 'win32' else 0
 
 try:
@@ -120,7 +122,7 @@ def scan_chat_media(folder):
 
     for fname in sorted(os.listdir(folder)):
         path = os.path.join(folder, fname)
-        if not os.path.isfile(path):
+        if not os.path.isfile(path) or is_macos_metadata(fname):
             continue
 
         m = _B_RE.match(fname)

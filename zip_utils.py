@@ -9,6 +9,8 @@ import sys
 import subprocess
 from datetime import datetime
 
+from fs_utils import is_macos_metadata
+
 # Windows-specific subprocess flag to prevent command windows from popping up
 CREATE_NO_WINDOW = 0x08000000 if sys.platform == 'win32' else 0
 
@@ -26,7 +28,7 @@ def extract_media_from_zip(zip_path, output_path):
     try:
         logging.info(f"Extracting media from ZIP: {zip_path}")
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            file_list = zip_ref.namelist()
+            file_list = [n for n in zip_ref.namelist() if not is_macos_metadata(n)]
             media_extensions = ('.jpg', '.jpeg', '.png', '.mp4', '.mov', '.m4v', '.heic')
             media_files = [f for f in file_list if f.lower().endswith(media_extensions)]
             if not media_files:
@@ -75,7 +77,8 @@ def extract_original_from_zip(zip_path, output_path):
         media_extensions = ('.jpg', '.jpeg', '.png', '.mp4', '.mov', '.m4v', '.heic')
 
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            file_list = [n for n in zip_ref.namelist() if not n.endswith('/')]
+            file_list = [n for n in zip_ref.namelist()
+                         if not n.endswith('/') and not is_macos_metadata(n)]
 
             # Prefer -main files (the original without overlay)
             main_files = [f for f in file_list if main_pattern.search(f)
@@ -430,9 +433,11 @@ def process_zip_overlay(zip_path, output_dir, date_obj=None):
         logging.info(f"Temporary extraction directory: {temp_dir}")
 
         with zipfile.ZipFile(zip_path, 'r') as z:
-            namelist = [n for n in z.namelist() if not n.endswith('/')]
+            namelist = [n for n in z.namelist()
+                        if not n.endswith('/') and not is_macos_metadata(n)]
             logging.info(f"ZIP contains {len(namelist)} files: {namelist}")
-            z.extractall(temp_dir)
+            for member in namelist:
+                z.extract(member, temp_dir)
 
             pattern_main = re.compile(r'(?P<base>.+)-main(?P<ext>\.[^.]+)$', re.IGNORECASE)
             pattern_overlay = re.compile(r'(?P<base>.+)-overlay(?P<ext>\.[^.]+)$', re.IGNORECASE)
