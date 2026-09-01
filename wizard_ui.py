@@ -8,14 +8,16 @@ call its existing browse_*/start_download methods.
 
 import json
 import os
+import queue
 import sys
 import threading
 import time
 import webbrowser
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 
 import video_utils
+import tool_installer
 
 # Palette — mirrors SnapchatDownloaderGUI.setup_styles()
 BG = "#f4f7fb"
@@ -35,8 +37,36 @@ README_URL = "https://github.com/ethanwheatthin/Snapchat_Memories_Downloader_GUI
 GUIDE_GET_DATA = README_URL + "#-how-to-get-your-snapchat-data"
 GUIDE_LOCAL_FILES = README_URL + "#-processing-local-files-no-download-urls"
 GUIDE_CHAT_MEDIA = README_URL + "#-processing-chat-media-merge-captions--fix-metadata"
-FFMPEG_GUIDE_URL = "https://phoenixnap.com/kb/ffmpeg-windows"
-VLC_DOWNLOAD_URL = "https://images.videolan.org/vlc/"
+FFMPEG_GUIDE_URL = "https://ffmpeg.org/download.html"
+VLC_DOWNLOAD_URL = "https://www.videolan.org/vlc/"
+
+# One-line install commands per platform. The wizard shows the command for
+# the tool that is missing with a Copy button, so users no longer have to
+# follow an outdated third-party guide. winget ships with Windows 10 19041+
+# and Windows 11; brew is the standard macOS package manager.
+if sys.platform == "win32":
+    _INSTALL_CMDS = {
+        "ffmpeg": "winget install --exact --id Gyan.FFmpeg --accept-package-agreements --accept-source-agreements",
+        "VLC": "winget install --exact --id VideoLAN.VLC --accept-package-agreements --accept-source-agreements",
+    }
+    INSTALL_SHELL_HINT = "PowerShell"
+elif sys.platform == "darwin":
+    _INSTALL_CMDS = {
+        "ffmpeg": "brew install ffmpeg",
+        "VLC": "brew install --cask vlc",
+    }
+    INSTALL_SHELL_HINT = "Terminal"
+else:
+    _INSTALL_CMDS = {
+        "ffmpeg": "sudo apt install -y ffmpeg      # dnf: sudo dnf install ffmpeg  |  pacman: sudo pacman -S ffmpeg",
+        "VLC": "sudo apt install -y vlc            # dnf: sudo dnf install vlc     |  pacman: sudo pacman -S vlc",
+    }
+    INSTALL_SHELL_HINT = "a terminal"
+
+
+def install_command(tool):
+    """One-line install command for 'ffmpeg' or 'VLC' on this platform."""
+    return _INSTALL_CMDS.get(tool)
 VENMO_URL = "https://account.venmo.com/u/ethan-c"
 
 
@@ -353,7 +383,8 @@ class TaskStep(WizardStep):
     """Step 1 — pick what to process."""
 
     title = "Task"
-    scrollable = False
+    # Scrollable: the required-tools card grows when a command box + Copy
+    # button is shown for each missing tool, which can overflow short windows.
 
     def build(self):
         self.heading(self.body, "What do you want to do?", style="PageHeader.TLabel")
@@ -395,8 +426,9 @@ class TaskStep(WizardStep):
         ttk.Label(tools_card,
                   text="ffmpeg and VLC are essential — they handle video conversion to H.264 "
                        "and merging captions/stickers onto your media. ffmpeg must be available "
-                       "on your system PATH; VLC just needs to be installed. If you just "
-                       "installed one, restart this app so it is picked up.",
+                       f"on your system PATH; VLC just needs to be installed. Copy the command "
+                       f"below, run it in {INSTALL_SHELL_HINT}, then restart this app (or click "
+                       "Re-check) so it is picked up.",
                   style="Info.TLabel", wraplength=640, justify=tk.LEFT).pack(anchor=tk.W, pady=(0, 10))
         self.tools_frame = ttk.Frame(tools_card, style="Card.TFrame")
         self.tools_frame.pack(fill=tk.X)
@@ -417,16 +449,137 @@ class TaskStep(WizardStep):
         row = ttk.Frame(self.tools_frame, style="Card.TFrame")
         row.pack(fill=tk.X, pady=(0, 4))
         if ok:
-            text, color = f"✓ {name} — {ok_text}", SUCCESS
+            tk.Label(row, text=f"✓ {name} — {ok_text}", bg=CARD, fg=SUCCESS,
+                     font=("Segoe UI", 9), wraplength=460,
+                     justify=tk.LEFT).pack(side=tk.LEFT)
+            return
+
+        header = ttk.Frame(row, style="Card.TFrame")
+        header.pack(fill=tk.X)
+        tk.Label(header, text=f"✗ {name} — {missing_text}", bg=CARD, fg=ERROR,
+                 font=("Segoe UI", 9), wraplength=460,
+                 justify=tk.LEFT).pack(side=tk.LEFT)
+        link = tk.Label(header, text=link_text, bg=CARD, fg=PRIMARY,
+                        font=("Segoe UI", 9, "underline"), cursor="hand2")
+        link.pack(side=tk.LEFT, padx=(10, 0))
+        link.bind("<Button-1>", lambda _e, u=url: webbrowser.open(u))
+
+        cmd = install_command(name)
+        if not cmd:
+            return
+        cmd_row = ttk.Frame(row, style="Card.TFrame")
+        cmd_row.pack(fill=tk.X, pady=(3, 0))
+        entry = tk.Entry(cmd_row, font=("Consolas", 9), relief=tk.FLAT,
+                         bg="#f1f4f9", fg=TEXT, readonlybackground="#f1f4f9",
+                         highlightthickness=1, highlightbackground="#d4dbe6")
+        entry.insert(0, cmd)
+        entry.config(state="readonly")
+        entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=3)
+
+        btn = tk.Button(cmd_row, text="Copy", font=("Segoe UI", 8), cursor="hand2",
+                        relief=tk.FLAT, bg=PRIMARY, fg="#ffffff",
+                        activebackground=PRIMARY, activeforeground="#ffffff",
+                        padx=10)
+        def _copy(_e=None, c=cmd, b=btn):
+            self.tools_frame.clipboard_clear()
+            self.tools_frame.clipboard_append(c)
+            b.config(text="Copied ✓")
+            b.after(1500, lambda: b.config(text="Copy"))
+        btn.config(command=_copy)
+        btn.pack(side=tk.LEFT, padx=(6, 0))
+
+        dl = tk.Button(cmd_row, text="Download for me", font=("Segoe UI", 8),
+                       cursor="hand2", relief=tk.FLAT, bg=SUCCESS, fg="#ffffff",
+                       activebackground=SUCCESS, activeforeground="#ffffff", padx=10)
+        dl.config(command=lambda n=name, u=url: self._download_tool(n, u))
+        dl.pack(side=tk.LEFT, padx=(6, 0))
+
+    # --- managed install ------------------------------------------------
+    def _download_tool(self, name, page_url):
+        if name == "ffmpeg":
+            prompt = ("Download a portable FFmpeg build (~40 MB) from the official "
+                      "static-build host and place it in this app's data folder?\n\n"
+                      "No administrator rights are needed and nothing else on your "
+                      "system is changed.")
         else:
-            text, color = f"✗ {name} — {missing_text}", ERROR
-        tk.Label(row, text=text, bg=CARD, fg=color, font=("Segoe UI", 9),
-                 wraplength=460, justify=tk.LEFT).pack(side=tk.LEFT)
-        if not ok:
-            link = tk.Label(row, text=link_text, bg=CARD, fg=PRIMARY,
-                            font=("Segoe UI", 9, "underline"), cursor="hand2")
-            link.pack(side=tk.LEFT, padx=(10, 0))
-            link.bind("<Button-1>", lambda _e, u=url: webbrowser.open(u))
+            prompt = ("Install VLC using your system package manager "
+                      f"({INSTALL_SHELL_HINT})? This runs the same command shown "
+                      "above. You may be asked to approve the install.")
+        if not messagebox.askyesno(f"Download {name}", prompt):
+            return
+
+        dlg = tk.Toplevel(self)
+        dlg.title(f"Installing {name}")
+        dlg.transient(self.winfo_toplevel())
+        dlg.configure(bg=CARD)
+        dlg.geometry("560x320")
+        ttk.Label(dlg, text=f"Installing {name}…", style="Header.TLabel").pack(
+            anchor=tk.W, padx=16, pady=(14, 6))
+        bar = ttk.Progressbar(dlg, mode="indeterminate")
+        bar.pack(fill=tk.X, padx=16)
+        bar.start(12)
+        log_box = tk.Text(dlg, height=12, font=("Consolas", 8), bg="#f1f4f9",
+                          fg=TEXT, relief=tk.FLAT, wrap=tk.WORD)
+        log_box.pack(fill=tk.BOTH, expand=True, padx=16, pady=10)
+        log_box.config(state=tk.DISABLED)
+        close_btn = ttk.Button(dlg, text="Close", style="Secondary.TButton",
+                               command=dlg.destroy, state=tk.DISABLED)
+        close_btn.pack(anchor=tk.E, padx=16, pady=(0, 12))
+
+        msgs = queue.Queue()
+
+        def emit(line):
+            msgs.put(("log", line))
+
+        def worker():
+            try:
+                if name == "ffmpeg":
+                    ok, result = tool_installer.install_ffmpeg(
+                        log=emit,
+                        progress=lambda done, total: msgs.put(("pct", (done, total))))
+                else:
+                    ok, result = tool_installer.install_vlc(log=emit)
+                    if not ok and result == "no-package-manager":
+                        emit("No package manager found — opening the download page "
+                             "in your browser instead.")
+                        webbrowser.open(page_url)
+                        ok, result = False, "Opened the official download page."
+            except Exception as exc:  # pragma: no cover - defensive
+                ok, result = False, f"Unexpected error: {exc}"
+            msgs.put(("done", (ok, result)))
+
+        def append(line):
+            log_box.config(state=tk.NORMAL)
+            log_box.insert(tk.END, line + "\n")
+            log_box.see(tk.END)
+            log_box.config(state=tk.DISABLED)
+
+        def poll():
+            try:
+                while True:
+                    kind, payload = msgs.get_nowait()
+                    if kind == "log":
+                        append(payload)
+                    elif kind == "pct":
+                        done, total = payload
+                        if total:
+                            bar.config(mode="determinate", maximum=total, value=done)
+                        # else keep indeterminate
+                    elif kind == "done":
+                        ok, result = payload
+                        bar.stop()
+                        bar.config(mode="determinate",
+                                   value=bar["maximum"] if ok else 0)
+                        append(("✓ " if ok else "✗ ") + result)
+                        close_btn.config(state=tk.NORMAL)
+                        self._refresh_tools()
+                        return
+            except queue.Empty:
+                pass
+            dlg.after(120, poll)
+
+        threading.Thread(target=worker, daemon=True).start()
+        dlg.after(120, poll)
 
     def _choice_card(self, parent, column, icon, title, desc):
         card = tk.Frame(parent, bg=CARD, highlightthickness=2,
@@ -870,14 +1023,31 @@ class OptionsStep(WizardStep):
             if not vlc_ok:
                 missing.append(("VLC", VLC_DOWNLOAD_URL))
             names = " and ".join(name for name, _ in missing)
-            ttk.Label(row, text=f"⚠ {names} not found — caption merging and H.264 conversion "
-                                f"may be unavailable.",
-                      style="Info.TLabel", wraplength=460, justify=tk.LEFT).pack(side=tk.LEFT)
+            ttk.Label(tools_card,
+                      text=f"⚠ {names} not found — caption merging and H.264 conversion "
+                           f"may be unavailable. Copy a command below, run it in "
+                           f"{INSTALL_SHELL_HINT}, then go Back to Task and click Re-check.",
+                      style="Info.TLabel", wraplength=640, justify=tk.LEFT).pack(anchor=tk.W)
             for name, url in missing:
-                link = tk.Label(row, text=f"Download {name}", bg=CARD, fg=PRIMARY,
-                                font=("Segoe UI", 9, "underline"), cursor="hand2")
-                link.pack(side=tk.LEFT, padx=(10, 0))
-                link.bind("<Button-1>", lambda _e, u=url: webbrowser.open(u))
+                cmd = install_command(name)
+                if not cmd:
+                    continue
+                crow = ttk.Frame(tools_card, style="Card.TFrame")
+                crow.pack(fill=tk.X, pady=(4, 0))
+                ent = tk.Entry(crow, font=("Consolas", 9), relief=tk.FLAT,
+                               bg="#f1f4f9", fg=TEXT, readonlybackground="#f1f4f9",
+                               highlightthickness=1, highlightbackground="#d4dbe6")
+                ent.insert(0, cmd)
+                ent.config(state="readonly")
+                ent.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=3)
+                b = tk.Button(crow, text="Copy", font=("Segoe UI", 8), cursor="hand2",
+                              relief=tk.FLAT, bg=PRIMARY, fg="#ffffff",
+                              activebackground=PRIMARY, activeforeground="#ffffff", padx=10)
+                b.config(command=lambda c=cmd, bb=b: (
+                    tools_card.clipboard_clear(), tools_card.clipboard_append(c),
+                    bb.config(text="Copied ✓"),
+                    bb.after(1500, lambda: bb.config(text="Copy"))))
+                b.pack(side=tk.LEFT, padx=(6, 0))
 
     def _toggle_advanced(self):
         self._adv_open = not self._adv_open

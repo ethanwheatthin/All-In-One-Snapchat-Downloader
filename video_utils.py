@@ -135,6 +135,13 @@ def _get_video_rotation(file_path):
 
 def check_ffmpeg():
     import shutil
+    # A portable build previously fetched by the "Download for me" button
+    # lives in a per-user app dir that is not on PATH — add it back first.
+    try:
+        import tool_installer
+        tool_installer.ensure_on_path()
+    except Exception:
+        pass
     if shutil.which('ffmpeg'):
         return True
     # GUI apps on macOS are launched by LaunchServices/Finder, not a login shell,
