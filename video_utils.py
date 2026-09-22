@@ -41,6 +41,36 @@ except Exception:
     HAS_PIL = False
 
 
+def _apply_icloud_compatible_profile(codec_context):
+    """Force H.264 output to iCloud/Apple Photos-compatible tagging.
+
+    Snapchat memory exports are sometimes tagged with a High profile plus
+    full-range ("pc") color and non-standard color primaries/transfer
+    (e.g. bt470bg). Re-encoding without normalizing these leaves the same
+    tags on the output, and the iCloud Photos web uploader rejects such
+    files with "The file type of this item is not supported" even though
+    the codec itself is H.264. Forcing Main profile, level 4.0, and
+    standard bt709/tv-range tagging matches what iPhone-captured video
+    looks like and is accepted by iCloud. This does not alter pixel data,
+    only the color metadata written into the bitstream/container.
+    """
+    try:
+        codec_context.profile = 'Main'
+    except Exception:
+        pass
+    try:
+        codec_context.options = dict(codec_context.options or {}, level='40')
+    except Exception:
+        pass
+    try:
+        codec_context.color_range = 1       # MPEG / "tv" range
+        codec_context.color_primaries = 1   # bt709
+        codec_context.color_trc = 1         # bt709
+        codec_context.colorspace = 1        # bt709
+    except Exception:
+        pass
+
+
 def sanitize_path(path):
     """Sanitize file path by stripping trailing invalid characters and normalizing.
     
@@ -966,6 +996,9 @@ def enforce_portrait_video(file_path, timeout=300):
                 'ffmpeg', '-y',
                 '-i', file_path,
                 '-c:v', 'libx264', '-crf', '18', '-preset', 'veryfast',
+                '-profile:v', 'main', '-level', '4.0', '-pix_fmt', 'yuv420p',
+                '-color_range', 'tv', '-colorspace', 'bt709',
+                '-color_primaries', 'bt709', '-color_trc', 'bt709',
                 '-c:a', 'copy',
                 '-metadata:s:v:0', 'rotate=0',   # Strip any leftover rotate tag
                 out_path
@@ -1121,6 +1154,9 @@ def _convert_with_ffmpeg(input_path, output_path=None):
             'ffmpeg', '-y',
             '-i', str(input_path),
             '-c:v', 'libx264', '-crf', '18', '-preset', 'veryfast',
+            '-profile:v', 'main', '-level', '4.0', '-pix_fmt', 'yuv420p',
+            '-color_range', 'tv', '-colorspace', 'bt709',
+            '-color_primaries', 'bt709', '-color_trc', 'bt709',
             '-c:a', 'copy',
             '-metadata:s:v:0', 'rotate=0',  # Strip any leftover rotate tag
             str(temp_output)
@@ -1274,6 +1310,7 @@ def convert_hevc_to_h264(input_path, output_path=None, max_attempts=3, failed_di
                 output_video_stream.height = coded_h
             output_video_stream.pix_fmt = 'yuv420p'
             output_video_stream.bit_rate = input_video_stream.bit_rate or 2000000
+            _apply_icloud_compatible_profile(output_video_stream.codec_context)
 
             audio_stream = None
             output_audio_stream = None
