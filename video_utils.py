@@ -6,6 +6,7 @@ import time
 import sys
 from pathlib import Path
 from datetime import datetime
+from fractions import Fraction
 
 # Windows-specific subprocess flag to prevent command windows from popping up
 CREATE_NO_WINDOW = 0x08000000 if sys.platform == 'win32' else 0
@@ -1294,7 +1295,24 @@ def convert_hevc_to_h264(input_path, output_path=None, max_attempts=3, failed_di
             logging.info(f"[{conversion_id}] Creating temp output: {temp_output}")
             output_container = av.open(str(temp_output), 'w')
 
-            output_video_stream = output_container.add_stream('h264', rate=input_video_stream.average_rate)
+            # Snapchat exports sometimes carry a non-integer average_rate (e.g.
+            # 33750/1127 ~= 29.94) with frame gaps that don't evenly divide it.
+            # Re-muxing the original variable-spaced timestamps against a
+            # fractional-rate stream can make the encoder emit a negative DTS
+            # on the first packet (B-frame reorder) or, once that's avoided,
+            # duplicate DTS values a bit further in (rounding collisions) -
+            # both of which the mp4 muxer rejects outright ("Invalid
+            # argument"). Round to a whole-number CFR and assign clean,
+            # strictly increasing synthetic timestamps below instead of
+            # reusing the source frame's pts/time_base.
+            src_rate = input_video_stream.average_rate or input_video_stream.guessed_rate
+            output_fps = round(float(src_rate)) if src_rate else 30
+            if output_fps <= 0:
+                output_fps = 30
+            output_time_base = Fraction(1, output_fps)
+            frame_index = 0
+
+            output_video_stream = output_container.add_stream('h264', rate=output_fps)
             # Swap width/height for 90° or 270° rotation so portrait videos stay portrait
             if needs_rotation and rotation in (90, 270):
                 output_video_stream.width = coded_h
@@ -1347,17 +1365,22 @@ def convert_hevc_to_h264(input_path, output_path=None, max_attempts=3, failed_di
                                     except AttributeError:
                                         img = img.rotate(180, expand=True)
                                 rotated_frame = av.VideoFrame.from_image(img)
-                                rotated_frame.pts = frame.pts
-                                rotated_frame.time_base = frame.time_base
+                                rotated_frame.pts = frame_index
+                                rotated_frame.time_base = output_time_base
                                 for out_packet in output_video_stream.encode(rotated_frame):
                                     output_container.mux(out_packet)
                             except Exception as rot_err:
                                 logging.warning(f"[{conversion_id}] Frame rotation failed, using original: {rot_err}")
+                                frame.pts = frame_index
+                                frame.time_base = output_time_base
                                 for out_packet in output_video_stream.encode(frame):
                                     output_container.mux(out_packet)
                         else:
+                            frame.pts = frame_index
+                            frame.time_base = output_time_base
                             for out_packet in output_video_stream.encode(frame):
                                 output_container.mux(out_packet)
+                        frame_index += 1
                 elif packet.stream.type == 'audio' and output_audio_stream:
                     for frame in packet.decode():
                         for out_packet in output_audio_stream.encode(frame):
