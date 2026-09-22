@@ -3115,6 +3115,23 @@ def _apply_file_metadata(path, is_video, date_obj, lat, lon, tz_offset, log_fn):
     """Write EXIF / MP4 metadata and set file timestamps."""
     ext = os.path.splitext(path)[1].lower()
     if is_video:
+        # Local Snapchat exports come pre-encoded as H.264 already, but with
+        # a High profile and full-range/non-standard color tags that iCloud
+        # Photos' web uploader rejects ("file type not supported"). Unlike
+        # the direct-download path, files reaching this helper (local folder
+        # import, chat media) were never routed through H.264 conversion at
+        # all, so the profile/color fix never applied to them. Re-encode in
+        # place here too, before writing metadata.
+        if HAS_PYAV or find_vlc_executable() or HAS_VLC:
+            try:
+                failed_dir = str(Path(path).parent / "failed_conversions")
+                ok, result = convert_hevc_to_h264(path, output_path=path, failed_dir_path=failed_dir)
+                if ok:
+                    log_fn("    ✓ Converted to H.264 (iCloud-compatible)")
+                else:
+                    log_fn(f"    ⚠ Conversion failed: {result}")
+            except Exception as exc:
+                log_fn(f"    ⚠ Conversion error: {exc}")
         meta_set = False
         try:
             if set_video_metadata_ffmpeg(path, date_obj, lat, lon, tz_offset):
