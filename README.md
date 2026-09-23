@@ -22,12 +22,9 @@ A user-friendly desktop application (Windows, macOS, and Linux) to download and 
 **YouTube Video Tutorial** - https://www.youtube.com/watch?v=O32IF1Qxg2E
 
 1. **Get the `.exe`** from the [latest release](https://github.com/ethanwheatthin/All-In-One-Snapchat-Downloader/releases)
-2. **Install recommended tools** (optional but highly recommended):
-   - [VLC Media Player](https://www.videolan.org/) — for video format conversion
-   - [FFmpeg](https://www.ffmpeg.org/download.html) — for enhanced video overlay merging
-   - RESTART COMPUTER AFTER INSTALLING THESE
-3. **Request your Snapchat data** (see instructions below or YT video)
-4. **Run the app** and follow the wizard
+2. **Request your Snapchat data** (see instructions below or YT video)
+3. **Run the app** and follow the wizard
+4. **Get FFmpeg and VLC from inside the app** — if either is missing, the first step of the wizard shows a **Download for me** button and a one-line install command you can copy. No manual hunting for installers and no computer restart needed (see [FFmpeg and VLC](#-ffmpeg-and-vlc))
 
 ## 📋 Overview
 
@@ -40,7 +37,9 @@ This tool downloads all your Snapchat memories using the `memories_history.json`
 - **Resume Downloads** — Skip already downloaded files to resume interrupted sessions
 - **Overlay Merging** — Automatically merges caption/sticker overlays back onto photos and videos
 - **Metadata Preservation** — Embeds original dates and GPS coordinates into EXIF data (images) and file metadata (videos)
-- **Video Conversion** — Automatic H.264 conversion for better Windows compatibility (when VLC is installed)
+- **Video Conversion** — Automatic H.264 conversion that plays on Windows and uploads to iCloud Photos, applied to downloads, local-file imports, and chat media alike
+- **One-click tool setup** — FFmpeg and VLC can be downloaded and installed from inside the app
+- **Organized output** — Memories are sorted into Year / Month / Day folders
 - **File Timestamps** — Sets file modification dates to match memory creation dates
 - **Progress Tracking** — Real-time progress updates and detailed logging
 - **Stop/Resume** — Pause and resume downloads at any time
@@ -53,13 +52,10 @@ This tool downloads all your Snapchat memories using the `memories_history.json`
 ### Using the Executable (Recommended)
 
 1. **Download** the latest `.exe` from the [releases page](https://github.com/ethanwheatthin/All-In-One-Snapchat-Downloader/releases)
-2. **Install optional tools** for best results:
-   - **VLC Media Player** ([download](https://www.videolan.org/)) — enables video conversion to H.264
-   - **FFmpeg** ([download](https://www.ffmpeg.org/download.html)) — enhances video overlay merging
-3. **RESTART YOUR COMPUTER AFTER INSTALLING VLC AND FFMPEG**
-4. **Run the application** — Double-click the `.exe` file ('Run anyway' if you get a windows security warning)
-5. Follow the usage instructions below
-   >  **Note:** If you keep getting the "no download URL found, skipping" message. Please refer to the [Local Processing Guide](#-processing-local-files-no-download-urls). It takes some setup but has been reported as the most reliable if the memories_history.json method is not working for you.
+2. **Run the application** — Double-click the `.exe` file ('Run anyway' if you get a windows security warning)
+3. **Set up FFmpeg and VLC** — the **Task** step checks for both. For anything missing, click **Download for me** or copy the install command shown and run it yourself, then click **Re-check** (details in [FFmpeg and VLC](#-ffmpeg-and-vlc))
+4. Follow the usage instructions below
+   >  **Note:** If you keep getting the "no download URL found, skipping" message, your export has no download URLs. Use **Process your export files** instead (the default). See the [Local Processing Guide](#-processing-local-files-no-download-urls).
 
 ## 📥 How to Get Your Snapchat Data
 
@@ -92,7 +88,7 @@ This tool downloads all your Snapchat memories using the `memories_history.json`
 
 The app walks you through four steps:
 
-1. **Task** — Pick what you want to do: **Memories** or **Chat media**. The app also checks that ffmpeg and VLC are installed:
+1. **Task** — Pick what you want to do: **Memories** or **Chat media**. The app also checks that ffmpeg and VLC are installed, and for anything missing offers a **Download for me** button plus a copyable install command (see [FFmpeg and VLC](#-ffmpeg-and-vlc)):
 
    ![Step 1 — Task selection](images/wizard_step1_task.png)
 
@@ -130,7 +126,78 @@ The app walks you through four steps:
 
    ![Step 4 — Memories being processed](images/wizard_step4_processing.png)
 
-Files are saved in your output directory, named by creation date: `YYYYMMDD_HHMMSS.jpg` or `YYYYMMDD_HHMMSS.mp4`. Overlays are automatically merged when detected.
+Memories are sorted into **Year / Month / Day** folders in your output directory and named by creation date, e.g. `2024/01 - January/2024-01-15/20240115_143022.jpg`. Overlays are automatically merged when detected. Files saved into a flat folder by older versions are still recognized when you resume.
+
+Resuming is fast: extracted ZIPs and timezone lookups are cached, so a second run skips work it's already done.
+
+## 📂 Processing Local Files (No Download URLs)
+
+The **Source** step offers two ways to get your memories:
+
+| Method | How it works | When to use it |
+|---|---|---|
+| **Process your export files (recommended)** | Uses the photos and videos already inside your export's `memories/` folders | Almost always. It works whether or not your export has download URLs |
+| **Download from Snapchat** | Fetches each memory using the URLs in `memories_history.json` | Only if your export includes URLs and you didn't include the media itself |
+
+Many Snapchat exports have an empty `Media Download Url` field for every memory. This has been confirmed across multiple accounts, so it's not a one-off. Download mode has nothing to fetch in that case and skips every file (the "no download URL found, skipping" message). The media is still inside your export ZIPs, though, so processing the export files gets you the same result: correct dates, GPS coordinates, and merged captions.
+
+You don't need to check which kind of export you have. When you select your export, the app reads `memories_history.json` and tells you how many memories it found. If there are no download URLs, it switches to **Process your export files** automatically.
+
+### How to use (easiest: point at the ZIPs)
+
+1. **Download every Snapchat export ZIP** into one folder. Don't extract anything:
+
+   ```
+   export/
+   ├── mydata~1784250848813.zip
+   ├── mydata~1784250848813-2.zip
+   ├── mydata~1784250848813-3.zip
+   └── ...
+   ```
+
+2. On the **Task** step, choose **Memories**
+3. On the **Source** step, keep **Process your export files (recommended)** selected. Under **Your Snapchat export**, select the folder of ZIPs. The app finds `memories_history.json` inside them and confirms something like "✓ memories_history.json found — 1,234 memories (2016–2024)"
+4. On the **Options** step, choose where to save the processed files
+5. Continue to the **Run** step and start processing. The ZIPs are extracted into an `extracted/` subfolder first, then every memory is processed. Both stages can be resumed: if you stop, the next run skips ZIPs that were already extracted and picks up where it left off
+
+### How to use (already-extracted folders)
+
+If you've already unzipped your export, that works too. Put all the extracted folders under one parent:
+
+```
+snapchat/
+├── mydata~AAA123/
+│   └── memories/
+├── mydata~BBB456/
+│   └── memories/
+└── mydata~CCC789/
+    └── memories/
+```
+
+![Parent folder containing multiple extracted Snapchat export folders](images/local_mode_parent_folder.png)
+
+Each extracted folder has a `memories/` subfolder containing your media:
+
+![Contents of a single extracted export folder showing the memories subfolder](images/local_mode_memories_subfolder.png)
+
+On the **Source** step, select any of these:
+- The `memories/` folder from a single export (e.g. `mydata~XXX/memories/`)
+- The export folder that contains it (e.g. `mydata~XXX/`)
+- A parent folder holding several exports (e.g. `snapchat/`). The app finds every `mydata~*/memories/` subfolder and processes them all in one run
+
+`memories_history.json` is found automatically in the usual export layouts. If the app can't find it, a **Memories export file** picker appears so you can select it yourself.
+
+### How files are matched
+
+Each file in `memories/` is matched to its entry in `memories_history.json` so the right date, time, and location get applied. The app tries these in order:
+
+1. **Memory ID**: the ID in the filename is looked up in the JSON
+2. **Timestamp**: the file's modification time (which Snapchat sets to the capture time) is compared with the JSON dates
+3. **Same-day pairing**: if a day has the same number of files as JSON entries, they're paired in order. If the day has only one JSON entry, that entry is used
+
+Files that can't be matched are still processed, using the date in their filename. They get no GPS location.
+
+Output is identical to download mode: captions merged, EXIF/video metadata and file timestamps written, videos converted to iCloud-compatible H.264, and everything sorted into Year / Month / Day folders. To add to an existing output folder without redoing work, turn on **Skip already-processed files in the output folder** under **Advanced options** on the Options step.
 
 ## 💬 Processing Chat Media (Merge Captions + Fix Metadata)
 
@@ -181,6 +248,25 @@ mydata~XXX/
 > - A few files in some exports are stored in an unreadable (likely encrypted) format; these are listed in the log and skipped.
 > - If the `json/` folder is missing, the mode still works — it just falls back to embedded video timestamps and filename dates.
 
+## 🎬 FFmpeg and VLC
+
+FFmpeg and VLC handle video conversion to H.264 and merging captions/stickers onto your media. The **Task** step of the wizard checks for both. For each missing tool it shows:
+
+- **Download for me** — the app installs it for you:
+  - **FFmpeg** — downloads the official portable static build (~40 MB) into the app's own data folder and uses it right away. No administrator rights, no installer, and nothing else on your system is changed. The download is checksum-verified when the host publishes one.
+  - **VLC** — installs through your system package manager (winget on Windows, Homebrew on macOS) and shows the install log live. You may be asked to approve the install. If no package manager is available, the official VLC download page opens instead.
+- **A copyable install command** — if you'd rather do it yourself, click **Copy** and run it:
+
+  | Platform | FFmpeg | VLC |
+  |---|---|---|
+  | Windows (PowerShell) | `winget install --exact --id Gyan.FFmpeg` | `winget install --exact --id VideoLAN.VLC` |
+  | macOS (Terminal) | `brew install ffmpeg` | `brew install --cask vlc` |
+  | Linux | `sudo apt install -y ffmpeg` (or `dnf` / `pacman`) | `sudo apt install -y vlc` (or `dnf` / `pacman`) |
+
+After installing, click **Re-check** on the Task step. You no longer need to restart your computer. A command-line install may need an app restart before it's detected, but **Download for me** works straight away.
+
+> **Note:** Without FFmpeg or VLC, the app still converts videos to iCloud-compatible H.264 and writes GPS/date metadata using its bundled PyAV library, so installing them is strongly recommended but no longer a hard requirement.
+
 ## 🔧 Technical Details
 
 ### Supported Media Types
@@ -211,10 +297,9 @@ Core libraries:
 
 > **Note:** The application gracefully handles missing optional packages. If timezone libraries aren't installed, timestamps default to UTC. If EXIF/video metadata libraries are missing, files are still downloaded but without embedded metadata.
 
-### REQUIRED Tools
+### External Tools
 
-- **VLC Media Player** — Automatic video conversion to H.264 (highly recommended)
-- **FFmpeg** — Enhanced video overlay processing
+- **FFmpeg** and **VLC**: the app can install these for you. See [FFmpeg and VLC](#-ffmpeg-and-vlc)
 
 ## 🍎🐧 Running on macOS and Linux (ALPHA NEEDS TESTERS)
 
@@ -224,7 +309,8 @@ The app runs on macOS and Linux as well as Windows. Grab the platform build from
 - Grab the build that matches your Mac's chip: `AllInOneSnapchatDownloader-macos-arm64.zip` for Apple Silicon (M1/M2/M3/M4) or `AllInOneSnapchatDownloader-macos-intel.zip` for Intel Macs. Each build only runs on its own architecture — the wrong one gives "This application is not supported on this Mac." Check your chip under **Apple menu → About This Mac**.
 - If you use the pre-built `.app`, macOS Gatekeeper will warn about an unsigned app the first time. Right-click the app → **Open** → **Open** to run it.
 - If running from source, use Python from [python.org](https://www.python.org/downloads/) or Homebrew (`brew install python-tk`) — the Tk that ships with the old system Python is buggy.
-- Install [VLC](https://www.videolan.org/) and/or FFmpeg (`brew install ffmpeg`) for video conversion and overlay merging.
+- Use **Download for me** on the Task step to get FFmpeg (portable, no Homebrew needed) and VLC (via Homebrew), or run `brew install ffmpeg` / `brew install --cask vlc` yourself.
+- The `._*` AppleDouble files and `__MACOSX/` folders macOS adds to ZIPs and external drives are ignored automatically.
 - If the app's tool check says FFmpeg isn't found even though `brew install ffmpeg` worked and it runs fine in Terminal: apps launched by double-clicking (not from a shell) don't inherit your shell's PATH, so Homebrew's install dir (`/opt/homebrew/bin` on Apple Silicon, `/usr/local/bin` on Intel) can be invisible to it. The app already checks those locations directly, but if FFmpeg is installed somewhere else, make sure it's on the `PATH` your login shell sets up, then relaunch the app.
 
 **Linux notes:**
@@ -232,7 +318,7 @@ The app runs on macOS and Linux as well as Windows. Grab the platform build from
   - Debian/Ubuntu: `sudo apt install python3-tk`
   - Fedora: `sudo dnf install python3-tkinter`
   - Arch: `sudo pacman -S tk`
-- Install VLC and FFmpeg from your package manager (e.g. `sudo apt install vlc ffmpeg`) for video conversion and overlay merging.
+- **Download for me** can fetch a portable FFmpeg build (x86-64 only). Install VLC from your package manager (e.g. `sudo apt install vlc`). The wizard shows the command to copy. You can also install FFmpeg the same way (`sudo apt install ffmpeg`).
 
 ## ⚙️ Building from Source
 
@@ -289,6 +375,7 @@ python -m pytest tests/ -v --tb=short
 - **Atomic conversion** — Verifies temp file → validate → atomic replace workflow
 - **Video validation** — Tests ffprobe-based validation (when available)
 - **Return contracts** — Confirms consistent return types across modules
+- **Tool installer** — Covers the FFmpeg/VLC "Download for me" flow (archive extraction, checksum verification, PATH handling)
 
 ## 📝 Important Notes
 
@@ -302,7 +389,6 @@ python -m pytest tests/ -v --tb=short
 - **Use Resume Mode** — Enable "Skip existing files" when resuming interrupted downloads
 - **Re-convert as needed** — Use the re-conversion option if you have old HEVC videos that won't play properly
 - **Download regularly** to avoid URL expiration
-- **Organize downloads** by creating subfolders by year/month
 - **Verify metadata** by checking a few files after initial download
 - **Keep your JSON** — Save a backup copy of `memories_history.json`
 
