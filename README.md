@@ -1,5 +1,7 @@
 # All-In-One Snapchat Downloader
 
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-FFDD00?style=flat&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/ethancollins)
+
 A user-friendly desktop application (Windows, macOS, and Linux) to download and preserve your Snapchat memories and chat media with their original metadata, including dates and location information.
 
 > **🎨 This is a complete UI rewrite of the original [Snapchat Memories Downloader GUI](https://github.com/ethanwheatthin/Snapchat_Memories_Downloader_GUI).**
@@ -278,7 +280,6 @@ After installing, click **Re-check** on the Task step. You no longer need to res
 
 - **Timezone-aware timestamps** — Uses GPS coordinates to determine correct local time (falls back to system timezone)
 - **Creation date/time preservation** — Embedded in EXIF (images) and file metadata (videos)
-- **GPS coordinates** — Embedded when available in original memory
 - **Timezone offset tags** — EXIF 2.31 standard offset fields for proper timezone display
 - **File modification timestamps** — Match local creation time for correct sorting in file managers
 - **Automatic overlay/caption merging** — Combines `-main` and `-overlay` file pairs seamlessly
@@ -391,6 +392,14 @@ python -m pytest tests/ -v --tb=short
 - **Download regularly** to avoid URL expiration
 - **Verify metadata** by checking a few files after initial download
 - **Keep your JSON** — Save a backup copy of `memories_history.json`
+
+## ☕ Support
+
+If this tool helped you save your memories, consider supporting the project — it helps keep it maintained and free for everyone.
+
+- [Buy Me a Coffee](https://buymeacoffee.com/ethancollins)
+- [Venmo](https://venmo.com/u/ethan-c)
+- [Cash App](https://cash.app/$ECollins19)
 
 ## 🤝 Contributing
 
