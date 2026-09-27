@@ -280,6 +280,7 @@ After installing, click **Re-check** on the Task step. You no longer need to res
 
 - **Timezone-aware timestamps** — Uses GPS coordinates to determine correct local time (falls back to system timezone)
 - **Creation date/time preservation** — Embedded in EXIF (images) and file metadata (videos)
+- **GPS coordinates** — Embedded when available in original memory
 - **Timezone offset tags** — EXIF 2.31 standard offset fields for proper timezone display
 - **File modification timestamps** — Match local creation time for correct sorting in file managers
 - **Automatic overlay/caption merging** — Combines `-main` and `-overlay` file pairs seamlessly
