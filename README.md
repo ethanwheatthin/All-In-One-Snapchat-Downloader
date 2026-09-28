@@ -398,9 +398,22 @@ python -m pytest tests/ -v --tb=short
 
 If this tool helped you save your memories, consider supporting the project — it helps keep it maintained and free for everyone.
 
-- [Buy Me a Coffee](https://buymeacoffee.com/ethancollins)
-- [Venmo](https://venmo.com/u/ethan-c)
-- [Cash App](https://cash.app/$ECollins19)
+<table>
+  <tr>
+    <td align="center">
+      <a href="https://venmo.com/u/ethan-c"><img src="images/venmo_qr.png" alt="Venmo QR code for @ethan-c" width="180"></a><br>
+      <b>Venmo</b><br>
+      <a href="https://venmo.com/u/ethan-c">@ethan-c</a>
+    </td>
+    <td align="center">
+      <a href="https://cash.app/$ECollins19"><img src="images/cashapp_qr.png" alt="Cash App QR code for $ECollins19" width="180"></a><br>
+      <b>Cash App</b><br>
+      <a href="https://cash.app/$ECollins19">$ECollins19</a>
+    </td>
+  </tr>
+</table>
+
+Or [Buy Me a Coffee](https://buymeacoffee.com/ethancollins).
 
 ## 🤝 Contributing
 
