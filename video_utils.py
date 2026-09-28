@@ -8,6 +8,8 @@ from pathlib import Path
 from datetime import datetime
 from fractions import Fraction
 
+from subprocess_env import clean_subprocess_env
+
 # Windows-specific subprocess flag to prevent command windows from popping up
 CREATE_NO_WINDOW = 0x08000000 if sys.platform == 'win32' else 0
 
@@ -116,7 +118,7 @@ def _get_video_rotation(file_path):
                 '-show_entries', 'stream_tags=rotate:stream_side_data_list',
                 '-of', 'json', str(file_path)
             ]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10, creationflags=CREATE_NO_WINDOW)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10, creationflags=CREATE_NO_WINDOW, env=clean_subprocess_env())
             if result.returncode == 0 and result.stdout.strip():
                 data = _json.loads(result.stdout)
                 streams = data.get('streams', [])
@@ -266,7 +268,7 @@ def validate_video_file(file_path, min_duration=0.1, min_size=1000):
                 '-of', 'default=noprint_wrappers=1:nokey=1',
                 str(file_path)
             ]
-            result = subprocess.run(cmd_format, capture_output=True, text=True, timeout=10, creationflags=CREATE_NO_WINDOW)
+            result = subprocess.run(cmd_format, capture_output=True, text=True, timeout=10, creationflags=CREATE_NO_WINDOW, env=clean_subprocess_env())
             if result.returncode == 0 and result.stdout.strip():
                 try:
                     info['duration'] = float(result.stdout.strip())
@@ -280,7 +282,7 @@ def validate_video_file(file_path, min_duration=0.1, min_size=1000):
                 '-of', 'json',
                 str(file_path)
             ]
-            result = subprocess.run(cmd_streams, capture_output=True, text=True, timeout=10, creationflags=CREATE_NO_WINDOW)
+            result = subprocess.run(cmd_streams, capture_output=True, text=True, timeout=10, creationflags=CREATE_NO_WINDOW, env=clean_subprocess_env())
             if result.returncode == 0:
                 import json
                 data = json.loads(result.stdout)
@@ -435,7 +437,7 @@ def convert_with_vlc_subprocess(input_path, output_path):
     logging.info(f"Converting with VLC subprocess: {input_path} -> {output_path}")
     
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, creationflags=CREATE_NO_WINDOW)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, creationflags=CREATE_NO_WINDOW, env=clean_subprocess_env())
         
         # Log stderr for debugging
         if result.stderr:
@@ -927,7 +929,7 @@ def set_video_metadata_ffmpeg(file_path, date_obj, latitude, longitude, timezone
         cmd.append(str(temp_output))
 
         logging.debug(f"Setting video metadata with ffmpeg: {' '.join(cmd)}")
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60, creationflags=CREATE_NO_WINDOW)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60, creationflags=CREATE_NO_WINDOW, env=clean_subprocess_env())
 
         if result.returncode == 0 and os.path.exists(temp_output):
             try:
@@ -1005,7 +1007,7 @@ def enforce_portrait_video(file_path, timeout=300):
                 out_path
             ]
             logging.info(f"enforce_portrait: applying {rotation}° via ffmpeg auto-rotate")
-            proc = subprocess.run(ffmpeg_cmd, capture_output=True, text=True, timeout=timeout, creationflags=CREATE_NO_WINDOW)
+            proc = subprocess.run(ffmpeg_cmd, capture_output=True, text=True, timeout=timeout, creationflags=CREATE_NO_WINDOW, env=clean_subprocess_env())
             if proc.returncode == 0 and os.path.exists(out_path) and os.path.getsize(out_path) > 1000:
                 try:
                     backup = f"{file_path}.backup"
@@ -1164,7 +1166,7 @@ def _convert_with_ffmpeg(input_path, output_path=None):
         ]
         
         logging.info(f"ffmpeg conversion command (auto-rotate): {' '.join(cmd)}")
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300, creationflags=CREATE_NO_WINDOW)
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300, creationflags=CREATE_NO_WINDOW, env=clean_subprocess_env())
         
         if proc.returncode != 0:
             logging.error(f"ffmpeg conversion failed: {proc.stderr}")

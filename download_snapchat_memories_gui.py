@@ -94,6 +94,7 @@ import snap_utils, exif_utils, video_utils, zip_utils, downloader
 import chat_media_utils
 import export_zip_utils
 from fs_utils import is_macos_metadata
+from subprocess_env import clean_subprocess_env
 
 
 def _is_main_media(fname):
@@ -261,7 +262,7 @@ def merge_video_overlay(main_video_path, overlay_image_path, output_path):
             ]
             probe_result = subprocess.run(
                 probe_cmd, capture_output=True, text=True, 
-                timeout=10, creationflags=CREATE_NO_WINDOW
+                timeout=10, creationflags=CREATE_NO_WINDOW, env=clean_subprocess_env()
             )
             video_duration = float(probe_result.stdout.strip())
             logging.info(f"Main video duration: {video_duration} seconds")
@@ -290,7 +291,7 @@ def merge_video_overlay(main_video_path, overlay_image_path, output_path):
         logging.info(f"Overlay image: {overlay_image_path}")
         logging.info(f"Output path: {output_path}")
         
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300, creationflags=CREATE_NO_WINDOW)
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300, creationflags=CREATE_NO_WINDOW, env=clean_subprocess_env())
         
         if proc.returncode != 0:
             logging.error(f"ffmpeg overlay merge failed with return code {proc.returncode}")
@@ -314,7 +315,7 @@ def merge_video_overlay(main_video_path, overlay_image_path, output_path):
                     ]
                     verify_result = subprocess.run(
                         verify_cmd, capture_output=True, text=True,
-                        timeout=10, creationflags=CREATE_NO_WINDOW
+                        timeout=10, creationflags=CREATE_NO_WINDOW, env=clean_subprocess_env()
                     )
                     output_duration = float(verify_result.stdout.strip())
                     logging.info(f"Output video duration: {output_duration} seconds")
@@ -1199,10 +1200,10 @@ class SnapchatDownloaderGUI:
                 return
             # macOS
             if sys.platform == 'darwin':
-                subprocess.run(['open', log_path])
+                subprocess.run(['open', log_path], env=clean_subprocess_env())
                 return
             # Linux
-            subprocess.run(['xdg-open', log_path])
+            subprocess.run(['xdg-open', log_path], env=clean_subprocess_env())
         except Exception as e:
             messagebox.showerror("Error", f"Could not open debug.log: {e}")
     
@@ -2207,11 +2208,11 @@ class SnapchatDownloaderGUI:
                 # Use taskkill on Windows to terminate ffmpeg processes
                 subprocess.run(['taskkill', '/F', '/IM', 'ffmpeg.exe'], 
                              capture_output=True, 
-                             creationflags=CREATE_NO_WINDOW)
+                             creationflags=CREATE_NO_WINDOW, env=clean_subprocess_env())
                 logging.info("Cleaned up any orphaned ffmpeg processes")
             else:
                 # On Unix-like systems, use pkill
-                subprocess.run(['pkill', '-9', 'ffmpeg'], capture_output=True)
+                subprocess.run(['pkill', '-9', 'ffmpeg'], capture_output=True, env=clean_subprocess_env())
                 logging.info("Cleaned up any orphaned ffmpeg processes")
         except Exception as e:
             # Silently fail if no ffmpeg processes exist or cleanup fails

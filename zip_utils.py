@@ -10,6 +10,7 @@ import subprocess
 from datetime import datetime
 
 from fs_utils import is_macos_metadata
+from subprocess_env import clean_subprocess_env
 
 # Windows-specific subprocess flag to prevent command windows from popping up
 CREATE_NO_WINDOW = 0x08000000 if sys.platform == 'win32' else 0
@@ -200,7 +201,7 @@ def merge_video_overlay(main_video_path, overlay_image_path, output_path):
             ]
             probe_result = subprocess.run(
                 probe_cmd, capture_output=True, text=True, 
-                timeout=10, creationflags=CREATE_NO_WINDOW
+                timeout=10, creationflags=CREATE_NO_WINDOW, env=clean_subprocess_env()
             )
             video_duration = float(probe_result.stdout.strip())
             logging.info(f"Main video duration: {video_duration} seconds")
@@ -239,7 +240,7 @@ def merge_video_overlay(main_video_path, overlay_image_path, output_path):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            creationflags=CREATE_NO_WINDOW
+            creationflags=CREATE_NO_WINDOW, env=clean_subprocess_env()
         )
         
         # Read stderr for progress (ffmpeg writes progress to stderr)
@@ -291,7 +292,7 @@ def merge_video_overlay(main_video_path, overlay_image_path, output_path):
                     ]
                     verify_result = subprocess.run(
                         verify_cmd, capture_output=True, text=True,
-                        timeout=10, creationflags=CREATE_NO_WINDOW
+                        timeout=10, creationflags=CREATE_NO_WINDOW, env=clean_subprocess_env()
                     )
                     output_duration = float(verify_result.stdout.strip())
                     logging.info(f"Output video duration: {output_duration} seconds")
@@ -354,7 +355,7 @@ def concat_video_segments(input_paths, output_path):
                      '-show_entries', 'stream=codec_type',
                      '-of', 'default=nw=1:nk=1', str(p)],
                     capture_output=True, text=True, timeout=10,
-                    creationflags=CREATE_NO_WINDOW,
+                    creationflags=CREATE_NO_WINDOW, env=clean_subprocess_env(),
                 )
                 segments_have_audio.append('audio' in probe.stdout)
             except Exception:
@@ -390,7 +391,7 @@ def concat_video_segments(input_paths, output_path):
         timeout = max(300, 60 * n)
         proc = subprocess.run(
             cmd, capture_output=True, text=True, timeout=timeout,
-            creationflags=CREATE_NO_WINDOW,
+            creationflags=CREATE_NO_WINDOW, env=clean_subprocess_env(),
         )
         if proc.returncode != 0:
             logging.error(f"ffmpeg concat failed: {proc.stderr[-500:]}")

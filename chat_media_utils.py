@@ -35,6 +35,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fs_utils import is_macos_metadata
+from subprocess_env import clean_subprocess_env
 
 CREATE_NO_WINDOW = 0x08000000 if sys.platform == 'win32' else 0
 
@@ -397,7 +398,7 @@ def get_video_creation_time(file_path):
             ['ffprobe', '-v', 'error', '-show_entries', 'format_tags=creation_time',
              '-of', 'default=nw=1:nk=1', str(file_path)],
             capture_output=True, text=True, timeout=15,
-            creationflags=CREATE_NO_WINDOW,
+            creationflags=CREATE_NO_WINDOW, env=clean_subprocess_env(),
         )
         raw = result.stdout.strip()
         if not raw:
@@ -475,7 +476,7 @@ def _extract_first_frame(video_path, out_path):
         result = subprocess.run(
             ['ffmpeg', '-y', '-v', 'error', '-i', str(video_path),
              '-frames:v', '1', str(out_path)],
-            capture_output=True, timeout=30, creationflags=CREATE_NO_WINDOW,
+            capture_output=True, timeout=30, creationflags=CREATE_NO_WINDOW, env=clean_subprocess_env(),
         )
         return result.returncode == 0 and os.path.exists(out_path)
     except Exception:

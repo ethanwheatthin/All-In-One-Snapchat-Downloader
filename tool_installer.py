@@ -25,6 +25,8 @@ import tarfile
 import tempfile
 import zipfile
 
+from subprocess_env import clean_subprocess_env
+
 try:
     import requests
 except Exception:  # pragma: no cover - requests is a hard dependency of the app
@@ -287,7 +289,7 @@ def install_vlc(log=None):
     try:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT, text=True,
-                                creationflags=CREATE_NO_WINDOW)
+                                creationflags=CREATE_NO_WINDOW, env=clean_subprocess_env())
     except Exception as exc:
         return False, f"Could not start package manager: {exc}"
     for line in proc.stdout:
