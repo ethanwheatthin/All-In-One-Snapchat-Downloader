@@ -32,6 +32,27 @@ A user-friendly desktop application (Windows, macOS, and Linux) to download and 
 
 This tool downloads all your Snapchat memories using the `memories_history.json` file from your Snapchat data export. It preserves metadata like creation dates, timestamps, and GPS coordinates by embedding them directly into your downloaded media files. It also automatically merges overlay captions and stickers back onto your photos and videos when present.
 
+## ☕ Support
+
+If this tool helped you save your memories, consider supporting the project — it helps keep it maintained and free for everyone.
+
+<table>
+  <tr>
+    <td align="center">
+      <a href="https://venmo.com/u/ethan-c"><img src="images/venmo_qr.png" alt="Venmo QR code for @ethan-c" width="180"></a><br>
+      <b>Venmo</b><br>
+      <a href="https://venmo.com/u/ethan-c">@ethan-c</a>
+    </td>
+    <td align="center">
+      <a href="https://cash.app/$ECollins19"><img src="images/cashapp_qr.png" alt="Cash App QR code for $ECollins19" width="180"></a><br>
+      <b>Cash App</b><br>
+      <a href="https://cash.app/$ECollins19">$ECollins19</a>
+    </td>
+  </tr>
+</table>
+
+Or [Buy Me a Coffee](https://buymeacoffee.com/ethancollins).
+
 ## ✨ Features
 
 - **Guided wizard UI** — No command line needed; a step-by-step flow walks you through every task
@@ -393,27 +414,6 @@ python -m pytest tests/ -v --tb=short
 - **Download regularly** to avoid URL expiration
 - **Verify metadata** by checking a few files after initial download
 - **Keep your JSON** — Save a backup copy of `memories_history.json`
-
-## ☕ Support
-
-If this tool helped you save your memories, consider supporting the project — it helps keep it maintained and free for everyone.
-
-<table>
-  <tr>
-    <td align="center">
-      <a href="https://venmo.com/u/ethan-c"><img src="images/venmo_qr.png" alt="Venmo QR code for @ethan-c" width="180"></a><br>
-      <b>Venmo</b><br>
-      <a href="https://venmo.com/u/ethan-c">@ethan-c</a>
-    </td>
-    <td align="center">
-      <a href="https://cash.app/$ECollins19"><img src="images/cashapp_qr.png" alt="Cash App QR code for $ECollins19" width="180"></a><br>
-      <b>Cash App</b><br>
-      <a href="https://cash.app/$ECollins19">$ECollins19</a>
-    </td>
-  </tr>
-</table>
-
-Or [Buy Me a Coffee](https://buymeacoffee.com/ethancollins).
 
 ## 🤝 Contributing
 
