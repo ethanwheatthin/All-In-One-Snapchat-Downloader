@@ -16,7 +16,8 @@ and comparing against the thumbnails (which have the overlay burned in).
 
 Timestamps come from, in priority order:
   1. json/chat_history.json — "Media IDs" match b~/hash filenames exactly
-  2. json/snap_history.json — date + media-type ordinal pairing
+  2. json/snap_history.json — export file time within ~2s of the entry,
+     else date + media-type ordinal pairing
   3. the media file's embedded creation_time (videos)
   4. the file's modification time — Snapchat writes the real send time
      into the export zip entries, so extracted files carry it (validated
@@ -31,7 +32,7 @@ import re
 import subprocess
 import sys
 import tempfile
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fs_utils import is_macos_metadata
@@ -287,16 +288,22 @@ def match_standalone(records, index):
     Sets record['match'] to the message dict (or None) and returns
     (matched_count, snap_matched_count). Records that fail the direct id
     lookup are paired against same-date snap_history entries of the same
-    media type, in filename order vs. capture-time order — only when the
-    counts for that (date, type) agree, so pairings are never guesses
-    across mixed sets.
+    media type. Each file's corrected export mtime is first matched to a snap
+    sent at that moment (see _match_by_time); whatever remains is paired in
+    filename order vs. capture-time order, only when the counts for that
+    (date, type) agree, so pairings are never guesses across mixed sets.
     """
     if index is None:
         for r in records:
             r['match'] = None
         return 0, 0
 
+    if 'mtime_shifts' not in index:
+        calibrate_time_offsets(records, index)
+
     matched = 0
+    snap_matched = 0
+    claimed = set()
     leftovers = {}
     for r in records:
         msg = index['id_to_msg'].get(r['media_id'])
@@ -304,12 +311,18 @@ def match_standalone(records, index):
         if msg is not None:
             matched += 1
         else:
-            kind = 'VIDEO' if r['is_video'] else 'IMAGE'
-            leftovers.setdefault((r['date'], kind), []).append(r)
+            get_export_mtime(r)
+            hit = _match_by_time(
+                r, _snaps_near(index, r['date'], 'VIDEO' if r['is_video'] else 'IMAGE'),
+                claimed)
+            if hit is not None:
+                r['match'], r['extra_matches'] = hit
+                snap_matched += 1
+            else:
+                kind = 'VIDEO' if r['is_video'] else 'IMAGE'
+                leftovers.setdefault((r['date'], kind), []).append(r)
 
-    # Snap entries have no media ids: pair by (date, type) ordinal.
-    snap_matched = 0
-    claimed = set()
+    # Snap entries have no media ids: pair the rest by (date, type) ordinal.
     for (day, kind), recs in leftovers.items():
         candidates = [s for s in index['snaps_by_date'].get(day, [])
                       if s.get('Media Type') == kind and id(s) not in claimed]
@@ -340,6 +353,11 @@ def match_zip_groups(zip_by_date, index, claimed_ids=None):
                 r['match'] = None
         return 0
 
+    if 'mtime_shifts' not in index:
+        calibrate_time_offsets(
+            [r for kinds in zip_by_date.values() for r in kinds.get('media', [])],
+            index)
+
     claimed_ids = claimed_ids or set()
     matched = 0
     for day, kinds in zip_by_date.items():
@@ -359,6 +377,22 @@ def match_zip_groups(zip_by_date, index, claimed_ids=None):
             r['_ctime'] = get_video_creation_time(r['path']) if r['is_video'] else None
             get_export_mtime(r)
 
+        # Exact pass: a file whose mtime sits within a couple of seconds of
+        # an entry was sent at that moment, whatever the ordinal counts say.
+        claimed = set()
+        remaining = []
+        for r in sorted(media_records, key=_capture_sort_key):
+            hit = _match_by_time(r, pool, claimed)
+            if hit is not None:
+                r['match'], r['extra_matches'] = hit
+                matched += 1
+            else:
+                remaining.append(r)
+        media_records = remaining
+        pool = [m for m in pool if id(m) not in claimed]
+        if not media_records:
+            continue
+
         if len(pool) == len(media_records):
             ordered = sorted(media_records, key=_capture_sort_key)
             for r, msg in zip(ordered, pool):
@@ -376,6 +410,57 @@ def match_zip_groups(zip_by_date, index, claimed_ids=None):
                     r['match'] = best
                     matched += 1
     return matched
+
+
+# The zip stores times at 2-second resolution, rounded down, so a file's
+# mtime trails its entry's true send time by 0-2s. A little slack either side.
+_MATCH_WINDOW_BEFORE = 1.0   # entry may precede the file time by this much
+_MATCH_WINDOW_AFTER = 3.0    # entry may follow the file time by this much
+
+
+def _snaps_near(index, day, kind):
+    """Snap entries of one media type on `day` and its neighbouring days
+    (the filename date and the entry's UTC date can straddle midnight)."""
+    base = datetime.strptime(day, '%Y-%m-%d')
+    found = []
+    for offset in (-1, 0, 1):
+        key = (base + timedelta(days=offset)).strftime('%Y-%m-%d')
+        found.extend(s for s in index['snaps_by_date'].get(key, [])
+                     if s.get('Media Type') == kind)
+    return found
+
+
+def _match_by_time(record, candidates, claimed):
+    """Find the history entry sent at the record's export mtime.
+
+    Returns (best, extras) or None. `extras` holds entries with the same
+    timestamp in other conversations — a snap sent to several people has one
+    entry per conversation — so the file can be filed under each of them.
+    Matched entries are added to `claimed`.
+    """
+    mtime = record.get('_mtime')
+    if mtime is None:
+        return None
+    hits = []
+    for entry in candidates:
+        if id(entry) in claimed or entry.get('_dt') is None:
+            continue
+        delta = (entry['_dt'] - mtime).total_seconds()
+        if -_MATCH_WINDOW_BEFORE <= delta <= _MATCH_WINDOW_AFTER:
+            hits.append((abs(delta - 1.0), entry))
+    if not hits:
+        return None
+    hits.sort(key=lambda h: h[0])
+    best = hits[0][1]
+    extras = []
+    seen = {best.get('_conversation')}
+    for _, entry in hits[1:]:
+        if entry['_dt'] == best['_dt'] and entry.get('_conversation') not in seen:
+            seen.add(entry.get('_conversation'))
+            extras.append(entry)
+    claimed.add(id(best))
+    claimed.update(id(e) for e in extras)
+    return best, extras
 
 
 def _capture_sort_key(record):
@@ -415,20 +500,146 @@ def get_video_creation_time(file_path):
         return None
 
 
+_QUARTER_HOUR = 900
+_MAX_SHIFT = 15 * 3600
+
+
+def calibrate_time_offsets(records, index):
+    """Work out each file's zip-time offset from the history JSON.
+
+    Zip entries store UTC send times with no time zone; whatever machine
+    extracted them read those as local, so on disk the mtime is the true
+    send time plus an unknown shift (the extracting machine's UTC offset,
+    which may differ from this machine's and changes with DST). Rather than
+    trusting this machine's zone, the shift is measured: a file whose true
+    time is known (media id in chat_history.json) gives it directly, and any
+    other file votes for every quarter-hour shift that lines a history entry
+    up with its mtime to within the zip's 2-second rounding. The real shifts
+    stand out as sharp peaks; per file date the best-supported peak wins
+    (DST changes the shift part-way through an export).
+
+    Sets record['_mtime'] (aware UTC, or None) on every record and returns
+    the sorted list of detected shifts in seconds (empty when none could be
+    established, in which case this machine's zone is the fallback).
+    """
+    stamps = {}
+    for r in records:
+        try:
+            stamps[id(r)] = os.path.getmtime(r['path'])
+        except OSError:
+            pass
+
+    totals = {}
+    by_date = {}
+
+    def vote(date, shift, weight):
+        totals[shift] = totals.get(shift, 0) + weight
+        d = by_date.setdefault(date, {})
+        d[shift] = d.get(shift, 0) + weight
+
+    def quantize(delta):
+        q = round(delta / _QUARTER_HOUR) * _QUARTER_HOUR
+        # mtime = true time rounded DOWN to 2s, so delta sits 0-2s under q
+        if abs(q) <= _MAX_SHIFT and -3.0 <= delta - q <= 1.0:
+            return q
+        return None
+
+    if index is not None:
+        for r in records:
+            ts = stamps.get(id(r))
+            if ts is None:
+                continue
+            msg = index['id_to_msg'].get(r.get('media_id'))
+            if msg is not None and msg.get('_dt') is not None:
+                q = quantize(ts - msg['_dt'].timestamp())
+                if q is not None:
+                    vote(r['date'], q, 3)  # certain match: weigh heavily
+                continue
+            base = datetime.strptime(r['date'], '%Y-%m-%d')
+            seen = set()
+            for offset in (-1, 0, 1):
+                day = (base + timedelta(days=offset)).strftime('%Y-%m-%d')
+                for entry in index['snaps_by_date'].get(day, []) +                         index['msgs_by_date'].get(day, []):
+                    if entry.get('_dt') is None:
+                        continue
+                    q = quantize(ts - entry['_dt'].timestamp())
+                    if q is not None and q not in seen:
+                        seen.add(q)
+                        vote(r['date'], q, 1)
+
+    shifts = []
+    if totals:
+        floor = max(3, 0.2 * max(totals.values()))
+        shifts = sorted(s for s, n in totals.items() if n >= floor)
+
+    def shift_for(date):
+        votes = {s: n for s, n in by_date.get(date, {}).items() if s in shifts}
+        if not votes:
+            # No evidence that day: DST follows the season, so borrow from
+            # the nearest date that has some.
+            target = datetime.strptime(date, '%Y-%m-%d')
+            best = None
+            for other, d in by_date.items():
+                if not any(s in shifts for s in d):
+                    continue
+                gap = abs((datetime.strptime(other, '%Y-%m-%d') - target).days)
+                if best is None or gap < best[0]:
+                    best = (gap, other)
+            if best is None:
+                return None
+            votes = {s: n for s, n in by_date[best[1]].items() if s in shifts}
+        return max(votes, key=votes.get)
+
+    cache = {}
+    for r in records:
+        r.pop('_mtime', None)
+        ts = stamps.get(id(r))
+        if ts is None:
+            continue
+        if r['date'] not in cache:
+            cache[r['date']] = shift_for(r['date']) if shifts else None
+        shift = cache[r['date']]
+        if shift is None:
+            continue  # leave to get_export_mtime's machine-zone fallback
+        r['_mtime'] = _validated_mtime(
+            r, datetime.fromtimestamp(ts - shift, tz=timezone.utc))
+    if index is not None:
+        index['mtime_shifts'] = shifts
+    return shifts
+
+
+def _validated_mtime(record, dt):
+    """`dt` if within two days of the filename's date, else None."""
+    try:
+        file_date = datetime.strptime(record['date'], '%Y-%m-%d').replace(
+            tzinfo=timezone.utc)
+        return dt if abs((dt - file_date).total_seconds()) <= 2 * 86400 else None
+    except Exception:
+        return None
+
+
 def get_export_mtime(record):
     """The file's modification time as aware UTC datetime, or None.
 
     Snapchat writes each file's real send time into the export zip entries,
-    which extraction preserves. Trusted only when it lands within two days
-    of the filename's date — an extractor that discarded zip times leaves
-    mtimes at extraction time, which must not be mistaken for a send time.
+    which extraction preserves. Zip/DOS timestamps carry no time zone: the
+    entries hold UTC, but extractors read them as local time, so the mtime
+    on disk is shifted by the extracting machine's UTC offset.
+    calibrate_time_offsets() measures that shift from the history JSON and
+    pre-sets record['_mtime']; this function is only the fallback when no
+    shift could be measured, and then assumes the extraction happened in
+    this machine's zone (reading the wall clock as UTC).
+
+    Trusted only when it lands within two days of the filename's date — an
+    extractor that discarded zip times leaves mtimes at extraction time,
+    which must not be mistaken for a send time.
     """
     if '_mtime' in record:
         return record['_mtime']
     mtime = None
     try:
-        raw = datetime.fromtimestamp(os.path.getmtime(record['path']),
-                                     tz=timezone.utc)
+        wall = datetime.fromtimestamp(os.path.getmtime(record['path']))
+        raw = wall.replace(tzinfo=timezone.utc)
         file_date = datetime.strptime(record['date'], '%Y-%m-%d').replace(
             tzinfo=timezone.utc)
         if abs((raw - file_date).total_seconds()) <= 2 * 86400:
@@ -697,6 +908,17 @@ def conversation_folder(record, fallback=UNSORTED_FOLDER):
     if match is None:
         return fallback
     return sanitize_folder_name(match.get('_conversation'), fallback)
+
+
+def extra_conversation_folders(record, fallback=UNSORTED_FOLDER):
+    """Additional folders for a snap sent to several conversations at once."""
+    primary = conversation_folder(record, fallback)
+    folders = []
+    for entry in record.get('extra_matches') or ():
+        folder = sanitize_folder_name(entry.get('_conversation'), fallback)
+        if folder != primary and folder not in folders:
+            folders.append(folder)
+    return folders
 
 
 # ==================== Sidecar metadata ====================

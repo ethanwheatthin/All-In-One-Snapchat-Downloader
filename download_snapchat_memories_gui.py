@@ -2773,6 +2773,18 @@ class SnapchatDownloaderGUI:
                          "times, then filename dates")
             index = chat_media_utils.build_chat_index(json_dir)
 
+            if index is not None:
+                # File times in the zip are zone-less; measure the offset from
+                # the history instead of assuming this machine's time zone.
+                all_media = list(standalone) + [
+                    r for k in zip_by_date.values() for r in k.get("media", [])]
+                shifts = chat_media_utils.calibrate_time_offsets(all_media, index)
+                if shifts:
+                    shown = ", ".join(f"{s / 3600:+g}h" for s in shifts)
+                    self.log(f"🕒 Export file-time offset(s) detected from history: {shown}")
+                else:
+                    self.log("ℹ Could not measure the export file-time offset — "
+                             "assuming it matches this computer's time zone")
             direct, via_snap = chat_media_utils.match_standalone(standalone, index)
             claimed = chat_media_utils.collect_claimed_ids(standalone)
             zip_matched = chat_media_utils.match_zip_groups(zip_by_date, index, claimed)
@@ -2879,12 +2891,13 @@ class SnapchatDownloaderGUI:
 
             if group_folders and not self.stop_download:
                 counts = {}
-                for record in standalone:
-                    folder = chat_media_utils.conversation_folder(record)
-                    counts[folder] = counts.get(folder, 0) + 1
+                all_records = list(standalone)
                 for kinds in zip_by_date.values():
-                    for record in kinds.get("media", []):
-                        folder = chat_media_utils.conversation_folder(record)
+                    all_records.extend(kinds.get("media", []))
+                for record in all_records:
+                    folders = [chat_media_utils.conversation_folder(record)]
+                    folders += chat_media_utils.extra_conversation_folders(record)
+                    for folder in folders:
                         counts[folder] = counts.get(folder, 0) + 1
                 unsorted_n = counts.pop(chat_media_utils.UNSORTED_FOLDER, 0)
                 self.log(f"📁 {len(counts):,} conversation folder(s):")
@@ -2980,6 +2993,16 @@ class SnapchatDownloaderGUI:
                 _copy_file_with_metadata(record["path"], out_file, is_video, local_dt,
                                          None, None, tz_off_str, log_local)
                 log_local(f"  ✓ → {out_name}")
+
+            # A snap sent to several conversations is filed under each one
+            if group_folders:
+                for extra in chat_media_utils.extra_conversation_folders(record):
+                    extra_dir = output_path / extra
+                    extra_dir.mkdir(parents=True, exist_ok=True)
+                    for written in (out_file, str(dest_dir / f"{date_str}_{idx}_original{ext}")):
+                        if os.path.exists(written):
+                            shutil.copy2(written, extra_dir / os.path.basename(written))
+                    log_local(f"  ✓ Also sent to \"{extra}\" → copied")
 
             return logs, True, False
 
