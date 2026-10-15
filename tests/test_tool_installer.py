@@ -196,3 +196,16 @@ def test_install_ffmpeg_darwin_gz(tmp_path, monkeypatch):
     assert all("evermeet" not in u for u in seen)
     assert (tmp_path / "bin" / "ffmpeg").read_bytes().startswith(b"bin:")
     assert (tmp_path / "bin" / "ffprobe").exists()
+
+
+def test_find_brew_probes_homebrew_dirs(monkeypatch):
+    monkeypatch.setattr(ti.shutil, "which", lambda n: None)
+    monkeypatch.setattr(ti.os.path, "isfile", lambda p: p == "/opt/homebrew/bin/brew")
+    assert ti._find_brew() == "/opt/homebrew/bin/brew"
+
+
+def test_install_vlc_mac_falls_back_to_page_without_brew(monkeypatch):
+    monkeypatch.setattr(ti.sys, "platform", "darwin")
+    monkeypatch.setattr(ti, "install_vlc_macos", lambda log=None, progress=None: (False, "boom"))
+    monkeypatch.setattr(ti, "_find_brew", lambda: None)
+    assert ti.install_vlc() == (False, "boom")

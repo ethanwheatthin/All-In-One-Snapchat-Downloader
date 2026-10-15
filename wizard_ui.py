@@ -544,7 +544,9 @@ class TaskStep(WizardStep):
                         log=emit,
                         progress=lambda done, total: msgs.put(("pct", (done, total))))
                 else:
-                    ok, result = tool_installer.install_vlc(log=emit)
+                    ok, result = tool_installer.install_vlc(
+                        log=emit,
+                        progress=lambda done, total: msgs.put(("pct", (done, total))))
                     if not ok and result == "no-package-manager":
                         emit("No package manager found — opening the download page "
                              "in your browser instead.")
