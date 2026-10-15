@@ -64,6 +64,17 @@ else:
     INSTALL_SHELL_HINT = "a terminal"
 
 
+def small_button(parent, text, command, bg):
+    """Compact coloured button. Tk on macOS ignores bg/fg on tk.Button (the
+    label renders white-on-white), so use a themed ttk button there."""
+    if sys.platform == "darwin":
+        return ttk.Button(parent, text=text, command=command,
+                          style="Secondary.TButton")
+    return tk.Button(parent, text=text, command=command, font=("Segoe UI", 8),
+                     cursor="hand2", relief=tk.FLAT, bg=bg, fg="#ffffff",
+                     activebackground=bg, activeforeground="#ffffff", padx=10)
+
+
 def install_command(tool):
     """One-line install command for 'ffmpeg' or 'VLC' on this platform."""
     return _INSTALL_CMDS.get(tool)
@@ -476,10 +487,7 @@ class TaskStep(WizardStep):
         entry.config(state="readonly")
         entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=3)
 
-        btn = tk.Button(cmd_row, text="Copy", font=("Segoe UI", 8), cursor="hand2",
-                        relief=tk.FLAT, bg=PRIMARY, fg="#ffffff",
-                        activebackground=PRIMARY, activeforeground="#ffffff",
-                        padx=10)
+        btn = small_button(cmd_row, "Copy", None, PRIMARY)
         def _copy(_e=None, c=cmd, b=btn):
             self.tools_frame.clipboard_clear()
             self.tools_frame.clipboard_append(c)
@@ -488,10 +496,8 @@ class TaskStep(WizardStep):
         btn.config(command=_copy)
         btn.pack(side=tk.LEFT, padx=(6, 0))
 
-        dl = tk.Button(cmd_row, text="Download for me", font=("Segoe UI", 8),
-                       cursor="hand2", relief=tk.FLAT, bg=SUCCESS, fg="#ffffff",
-                       activebackground=SUCCESS, activeforeground="#ffffff", padx=10)
-        dl.config(command=lambda n=name, u=url: self._download_tool(n, u))
+        dl = small_button(cmd_row, "Download for me",
+                          lambda n=name, u=url: self._download_tool(n, u), SUCCESS)
         dl.pack(side=tk.LEFT, padx=(6, 0))
 
     # --- managed install ------------------------------------------------
@@ -1040,9 +1046,7 @@ class OptionsStep(WizardStep):
                 ent.insert(0, cmd)
                 ent.config(state="readonly")
                 ent.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=3)
-                b = tk.Button(crow, text="Copy", font=("Segoe UI", 8), cursor="hand2",
-                              relief=tk.FLAT, bg=PRIMARY, fg="#ffffff",
-                              activebackground=PRIMARY, activeforeground="#ffffff", padx=10)
+                b = small_button(crow, "Copy", None, PRIMARY)
                 b.config(command=lambda c=cmd, bb=b: (
                     tools_card.clipboard_clear(), tools_card.clipboard_append(c),
                     bb.config(text="Copied ✓"),

@@ -17,7 +17,9 @@ copy-the-command instructions, so a failed download is never a dead end.
 
 import hashlib
 import logging
+import gzip
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -98,11 +100,12 @@ _FFMPEG_SOURCES = {
         "kind": "zip",
     },
     "darwin": {
-        # evermeet.cx is the download host linked from ffmpeg.org for macOS.
-        "url": "https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip",
-        "url2": "https://evermeet.cx/ffmpeg/getrelease/ffprobe/zip",
+        # evermeet.cx now answers 410 Gone, so use the eugeneware/ffmpeg-static
+        # release assets (gzip'd single binaries, one pair per CPU arch).
+        "url": "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffmpeg-darwin-{arch}.gz",
+        "url2": "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffprobe-darwin-{arch}.gz",
         "sha256_url": None,
-        "kind": "zip",
+        "kind": "gz",
     },
     "linux": {
         "url": "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz",
@@ -182,9 +185,21 @@ def _verify_sha256(path, sha_url, log=None):
     return True
 
 
-def _extract_wanted(archive_path, kind, dest_dir):
-    """Pull ffmpeg/ffprobe out of a zip or tar archive into dest_dir (flat)."""
+def _mac_arch():
+    return "arm64" if platform.machine().lower() in ("arm64", "aarch64") else "x64"
+
+
+def _extract_wanted(archive_path, kind, dest_dir, name=None):
+    """Pull ffmpeg/ffprobe out of a zip or tar archive into dest_dir (flat).
+
+    kind "gz" is a single gzip'd binary that is written out as `name`.
+    """
     found = []
+    if kind == "gz":
+        target = os.path.join(dest_dir, name)
+        with gzip.open(archive_path) as src, open(target, "wb") as dst:
+            shutil.copyfileobj(src, dst)
+        return [name]
     if kind == "zip":
         with zipfile.ZipFile(archive_path) as z:
             for member in z.namelist():
@@ -228,13 +243,15 @@ def install_ffmpeg(log=None, progress=None):
     os.makedirs(staging, exist_ok=True)
     try:
         urls = [src["url"]] + ([src["url2"]] if src.get("url2") else [])
+        urls = [u.format(arch=_mac_arch()) for u in urls]
+        names = ["ffmpeg", "ffprobe"]
         got = set()
         for i, url in enumerate(urls):
             arc = os.path.join(tmp, f"dl{i}")
             _download(url, arc, log, progress)
             if not _verify_sha256(arc, src.get("sha256_url") if i == 0 else None, log):
                 return False, "Download failed checksum verification — nothing installed"
-            got.update(_extract_wanted(arc, src["kind"], staging))
+            got.update(_extract_wanted(arc, src["kind"], staging, names[i]))
 
         staged = os.listdir(staging)
         missing = [n for n in ("ffmpeg", "ffprobe")

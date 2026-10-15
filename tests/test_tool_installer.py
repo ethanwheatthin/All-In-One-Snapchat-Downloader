@@ -178,3 +178,21 @@ def test_install_vlc_nonzero_exit(monkeypatch):
     ok, msg = ti.install_vlc()
     assert not ok
     assert "code 1" in msg
+
+
+def test_install_ffmpeg_darwin_gz(tmp_path, monkeypatch):
+    import gzip
+    monkeypatch.setattr(ti.sys, "platform", "darwin")
+    monkeypatch.setattr(ti, "app_data_dir", lambda: str(tmp_path))
+    seen = []
+
+    def fake_get(url, *a, **k):
+        seen.append(url)
+        return _FakeResponse(gzip.compress(b"bin:" + url.encode()))
+
+    monkeypatch.setattr(ti.requests, "get", fake_get)
+    ok, msg = ti.install_ffmpeg()
+    assert ok, msg
+    assert all("evermeet" not in u for u in seen)
+    assert (tmp_path / "bin" / "ffmpeg").read_bytes().startswith(b"bin:")
+    assert (tmp_path / "bin" / "ffprobe").exists()
