@@ -1071,6 +1071,20 @@ class SnapchatDownloaderGUI:
         for candidate in candidates:
             if os.path.isfile(candidate):
                 return candidate
+        # Fallback: extracted exports may sit under wrapper folders of any
+        # (reasonable) depth. Skip the big media folders.
+        skip = {"memories", "chat_media", "html", "extracted"}
+        base_depth = os.path.normpath(root).count(os.sep)
+        try:
+            for dirpath, dirnames, filenames in os.walk(root):
+                depth = os.path.normpath(dirpath).count(os.sep) - base_depth
+                dirnames[:] = sorted(d for d in dirnames if d not in skip)
+                if depth >= 5:
+                    dirnames[:] = []
+                if "memories_history.json" in filenames:
+                    return os.path.join(dirpath, "memories_history.json")
+        except Exception:
+            pass
         return None
 
     def _detect_export_zips(self, directory):
@@ -1081,7 +1095,14 @@ class SnapchatDownloaderGUI:
         validate — the full (multi-GB) extraction happens when
         processing starts. Returns True if export ZIPs were found.
         """
-        zips = export_zip_utils.find_export_zips(directory)
+        read_errors = []
+        zips = export_zip_utils.find_export_zips(directory, errors=read_errors)
+        if read_errors:
+            self.memories_section_info.config(
+                text=f"⚠ {read_errors[0]} — on macOS, allow the app access to this "
+                     f"folder in System Settings → Privacy & Security → Files and Folders"
+            )
+            return True
         if not zips:
             return False
         size = export_zip_utils.format_size(export_zip_utils.total_zip_size(zips))

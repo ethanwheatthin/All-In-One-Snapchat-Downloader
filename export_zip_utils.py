@@ -30,6 +30,9 @@ from datetime import datetime
 # Top-level names that identify a Snapchat export ZIP
 EXPORT_TOP_LEVEL_HINTS = ("memories", "chat_media", "json", "html", "index.html")
 
+# How many wrapper folders may sit above the export layout inside a ZIP
+MAX_WRAPPER_DEPTH = 3
+
 EXTRACT_DIRNAME = "extracted"
 EXTRACT_STAMP_NAME = ".export_extract_stamp.json"
 
@@ -93,26 +96,54 @@ def extract_is_up_to_date(dest_root, zip_paths):
     return stamped == _zip_fingerprint(zip_paths)
 
 
+def zip_wrapper_prefix(names):
+    """Locate the export layout inside a ZIP's member names.
+
+    Most exports keep memories/, json/, ... at the ZIP's top level, but a
+    ZIP may also nest them under wrapper folders (``mydata~123/json/...``).
+    Returns the prefix to strip (``""`` for top level, ``"mydata~123/"``
+    for a wrapper), or None when no export layout is found.
+    """
+    for name in names:
+        if is_macos_metadata(name):
+            continue
+        parts = name.replace("\\", "/").split("/")
+        for depth, part in enumerate(parts[:MAX_WRAPPER_DEPTH + 1]):
+            is_last = depth == len(parts) - 1
+            if part in EXPORT_TOP_LEVEL_HINTS and (not is_last or part == "index.html"):
+                return "".join(p + "/" for p in parts[:depth])
+    return None
+
+
+def _strip_prefix(name, prefix):
+    """Member path relative to the export root, or None if outside it."""
+    name = name.replace("\\", "/")
+    if not prefix:
+        return name
+    return name[len(prefix):] if name.startswith(prefix) else None
+
+
 def looks_like_export_zip(zip_path):
-    """True if the ZIP's top level matches the Snapchat export layout."""
+    """True if the ZIP contains the Snapchat export layout (possibly nested)."""
     try:
         with zipfile.ZipFile(zip_path) as z:
-            for name in z.namelist():
-                if is_macos_metadata(name):
-                    continue
-                top = name.split("/", 1)[0]
-                if top in EXPORT_TOP_LEVEL_HINTS:
-                    return True
+            return zip_wrapper_prefix(z.namelist()) is not None
     except Exception as exc:
         logging.debug(f"Could not inspect ZIP {zip_path}: {exc}")
     return False
 
 
-def find_export_zips(directory):
-    """Return Snapchat export ZIPs directly inside directory (sorted by name)."""
+def find_export_zips(directory, errors=None):
+    """Return Snapchat export ZIPs directly inside directory (sorted by name).
+
+    If errors is a list, a message is appended when the folder can't be read
+    (e.g. a macOS privacy permission denial) instead of failing silently.
+    """
     try:
         entries = sorted(os.listdir(directory))
-    except Exception:
+    except Exception as exc:
+        if errors is not None:
+            errors.append(f"Can't read folder {directory}: {exc}")
         return []
     zips = []
     for entry in entries:
@@ -168,14 +199,18 @@ def extract_memories_json(zip_paths, dest_root):
     for zip_path in zip_paths:
         try:
             with zipfile.ZipFile(zip_path) as z:
-                infos = [i for i in z.infolist()
-                         if not i.is_dir() and i.filename.startswith("json/")
-                         and not is_macos_metadata(i.filename)]
-                if not any(i.filename.endswith(MEMORIES_JSON_SUFFIX) for i in infos):
+                prefix = zip_wrapper_prefix(z.namelist())
+                if prefix is None:
+                    continue
+                infos = [(i, rel) for i in z.infolist()
+                         if not i.is_dir() and not is_macos_metadata(i.filename)
+                         for rel in [_strip_prefix(i.filename, prefix)]
+                         if rel and rel.startswith("json/")]
+                if not any(rel.endswith(MEMORIES_JSON_SUFFIX) for _, rel in infos):
                     continue
                 dest_root_abs = os.path.abspath(dest_root)
-                for info in infos:
-                    target = _safe_target(dest_root_abs, info.filename)
+                for info, rel in infos:
+                    target = _safe_target(dest_root_abs, rel)
                     if target is None:
                         continue
                     os.makedirs(os.path.dirname(target), exist_ok=True)
@@ -186,7 +221,7 @@ def extract_memories_json(zip_paths, dest_root):
                                 break
                             dst.write(chunk)
                     _restore_mtime(target, info)
-                    if info.filename.endswith(MEMORIES_JSON_SUFFIX):
+                    if rel.endswith(MEMORIES_JSON_SUFFIX):
                         json_path = target
                 return json_path
         except Exception as exc:
@@ -242,6 +277,7 @@ def extract_export_zips(zip_paths, dest_root, log=None, progress=None, stop_chec
                 f"({size}, {per_zip_counts[zip_path]:,} files)...")
         try:
             with zipfile.ZipFile(zip_path) as z:
+                prefix = zip_wrapper_prefix(z.namelist()) or ""
                 for info in z.infolist():
                     if info.is_dir() or is_macos_metadata(info.filename):
                         continue
@@ -249,7 +285,11 @@ def extract_export_zips(zip_paths, dest_root, log=None, progress=None, stop_chec
                         stats["aborted"] = True
                         return stats
                     done += 1
-                    target = _safe_target(dest_root_abs, info.filename)
+                    rel = _strip_prefix(info.filename, prefix)
+                    if not rel:
+                        stats["skipped"] += 1
+                        continue
+                    target = _safe_target(dest_root_abs, rel)
                     if target is None:
                         logging.warning(
                             f"Skipping unsafe ZIP member path: {info.filename}")
