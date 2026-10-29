@@ -2990,14 +2990,21 @@ class SnapchatDownloaderGUI:
             overlay_path = overlay_record["path"] if overlay_record else None
 
             if overlay_path and overlay_mode in ("merge", "both"):
+                merged_is_video = is_video
                 if is_video:
                     ok, result = merge_video_overlay(record["path"], overlay_path, out_file)
                 else:
                     ok, result = merge_images(record["path"], overlay_path, out_file)
+                    if ok and result != out_file:
+                        # animated overlay: photo became a looping .mp4
+                        out_file = result
+                        out_name = os.path.basename(result) if not group_folders \
+                            else f"{folder}/{os.path.basename(result)}"
+                        merged_is_video = True
 
                 if ok:
                     log_local(f"  ✓ Merged caption → {out_name}")
-                    _apply_file_metadata(out_file, is_video, local_dt, None, None,
+                    _apply_file_metadata(out_file, merged_is_video, local_dt, None, None,
                                          tz_off_str, log_local)
                 else:
                     log_local(f"  ⚠ Merge failed ({result}), copying original instead")
@@ -3084,14 +3091,20 @@ class SnapchatDownloaderGUI:
                 out_name = f"{date_str}_{idx}{ext}"
                 out_file = str(media_output_dir / out_name)
 
+                merged_is_video = is_video
                 if is_video:
                     ok, result = merge_video_overlay(file_path, overlay_path, out_file)
                 else:
                     ok, result = merge_images(file_path, overlay_path, out_file)
+                    if ok and result != out_file:
+                        # animated overlay: photo became a looping .mp4
+                        out_file = result
+                        out_name = os.path.basename(result)
+                        merged_is_video = True
 
                 if ok:
                     log_local(f"  ✓ Merged overlay → {out_name}")
-                    _apply_file_metadata(result, is_video, local_dt, latitude, longitude,
+                    _apply_file_metadata(result, merged_is_video, local_dt, latitude, longitude,
                                         tz_off_str, log_local)
                     primary_output = out_file
                 else:
