@@ -66,10 +66,26 @@ def get_app_base_dir():
     Linux launchers) starts with cwd at '/' or another unwritable location,
     so fall back to the user's home directory in that case.
     """
-    cwd = Path.cwd()
-    if cwd != Path(cwd.anchor) and os.access(cwd, os.W_OK):
+    try:
+        cwd = Path.cwd()
+    except OSError:
+        return Path.home()
+    if cwd != Path(cwd.anchor) and _dir_is_writable(cwd):
         return cwd
     return Path.home()
+
+
+def _dir_is_writable(path):
+    """Really try to create a file: os.access(W_OK) is unreliable on Windows
+    (e.g. it reports C:\\Program Files\\... as writable for ACL-protected dirs)."""
+    probe = Path(path) / f".write_test_{os.getpid()}"
+    try:
+        with open(probe, "w"):
+            pass
+        probe.unlink()
+        return True
+    except OSError:
+        return False
 
 
 APP_BASE_DIR = get_app_base_dir()
@@ -77,14 +93,20 @@ LOG_FILE = str(APP_BASE_DIR / "debug.log")
 DEFAULT_OUTPUT_DIR = str(APP_BASE_DIR / "downloads")
 SETTINGS_FILE = str(APP_BASE_DIR / "gui_settings.json")
 
-# Configure logging
+# Configure logging (never let an unwritable log location stop the app)
+_log_handlers = [logging.StreamHandler()]  # Log to console
+try:
+    _log_handlers.insert(0, logging.FileHandler(LOG_FILE))  # Log to a file
+except OSError:
+    LOG_FILE = str(Path.home() / "debug.log")
+    try:
+        _log_handlers.insert(0, logging.FileHandler(LOG_FILE))
+    except OSError:
+        pass
 logging.basicConfig(
     level=logging.DEBUG,  # Set to DEBUG for verbose logging
     format='%(asctime)s [%(levelname)s] %(message)s',
-    handlers=[
-        logging.FileHandler(LOG_FILE),  # Log to a file
-        logging.StreamHandler()  # Log to console
-    ]
+    handlers=_log_handlers
 )
 
 # ==================== Core Functions (from original script) ====================
