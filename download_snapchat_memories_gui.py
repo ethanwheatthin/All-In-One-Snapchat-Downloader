@@ -66,10 +66,26 @@ def get_app_base_dir():
     Linux launchers) starts with cwd at '/' or another unwritable location,
     so fall back to the user's home directory in that case.
     """
-    cwd = Path.cwd()
-    if cwd != Path(cwd.anchor) and os.access(cwd, os.W_OK):
+    try:
+        cwd = Path.cwd()
+    except OSError:
+        return Path.home()
+    if cwd != Path(cwd.anchor) and _dir_is_writable(cwd):
         return cwd
     return Path.home()
+
+
+def _dir_is_writable(path):
+    """Really try to create a file: os.access(W_OK) is unreliable on Windows
+    (e.g. it reports C:\\Program Files\\... as writable for ACL-protected dirs)."""
+    probe = Path(path) / f".write_test_{os.getpid()}"
+    try:
+        with open(probe, "w"):
+            pass
+        probe.unlink()
+        return True
+    except OSError:
+        return False
 
 
 APP_BASE_DIR = get_app_base_dir()
@@ -77,14 +93,20 @@ LOG_FILE = str(APP_BASE_DIR / "debug.log")
 DEFAULT_OUTPUT_DIR = str(APP_BASE_DIR / "downloads")
 SETTINGS_FILE = str(APP_BASE_DIR / "gui_settings.json")
 
-# Configure logging
+# Configure logging (never let an unwritable log location stop the app)
+_log_handlers = [logging.StreamHandler()]  # Log to console
+try:
+    _log_handlers.insert(0, logging.FileHandler(LOG_FILE))  # Log to a file
+except OSError:
+    LOG_FILE = str(Path.home() / "debug.log")
+    try:
+        _log_handlers.insert(0, logging.FileHandler(LOG_FILE))
+    except OSError:
+        pass
 logging.basicConfig(
     level=logging.DEBUG,  # Set to DEBUG for verbose logging
     format='%(asctime)s [%(levelname)s] %(message)s',
-    handlers=[
-        logging.FileHandler(LOG_FILE),  # Log to a file
-        logging.StreamHandler()  # Log to console
-    ]
+    handlers=_log_handlers
 )
 
 # ==================== Core Functions (from original script) ====================
@@ -2990,14 +3012,21 @@ class SnapchatDownloaderGUI:
             overlay_path = overlay_record["path"] if overlay_record else None
 
             if overlay_path and overlay_mode in ("merge", "both"):
+                merged_is_video = is_video
                 if is_video:
                     ok, result = merge_video_overlay(record["path"], overlay_path, out_file)
                 else:
                     ok, result = merge_images(record["path"], overlay_path, out_file)
+                    if ok and result != out_file:
+                        # animated overlay: photo became a looping .mp4
+                        out_file = result
+                        out_name = os.path.basename(result) if not group_folders \
+                            else f"{folder}/{os.path.basename(result)}"
+                        merged_is_video = True
 
                 if ok:
                     log_local(f"  ✓ Merged caption → {out_name}")
-                    _apply_file_metadata(out_file, is_video, local_dt, None, None,
+                    _apply_file_metadata(out_file, merged_is_video, local_dt, None, None,
                                          tz_off_str, log_local)
                 else:
                     log_local(f"  ⚠ Merge failed ({result}), copying original instead")
@@ -3084,14 +3113,20 @@ class SnapchatDownloaderGUI:
                 out_name = f"{date_str}_{idx}{ext}"
                 out_file = str(media_output_dir / out_name)
 
+                merged_is_video = is_video
                 if is_video:
                     ok, result = merge_video_overlay(file_path, overlay_path, out_file)
                 else:
                     ok, result = merge_images(file_path, overlay_path, out_file)
+                    if ok and result != out_file:
+                        # animated overlay: photo became a looping .mp4
+                        out_file = result
+                        out_name = os.path.basename(result)
+                        merged_is_video = True
 
                 if ok:
                     log_local(f"  ✓ Merged overlay → {out_name}")
-                    _apply_file_metadata(result, is_video, local_dt, latitude, longitude,
+                    _apply_file_metadata(result, merged_is_video, local_dt, latitude, longitude,
                                         tz_off_str, log_local)
                     primary_output = out_file
                 else:
