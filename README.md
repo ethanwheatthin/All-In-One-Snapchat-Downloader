@@ -415,6 +415,49 @@ python -m pytest tests/ -v --tb=short
 - **Verify metadata** by checking a few files after initial download
 - **Keep your JSON** — Save a backup copy of `memories_history.json`
 
+## ❓ Frequently Asked Questions
+
+Common questions from the [YouTube tutorial](https://www.youtube.com/watch?v=O32IF1Qxg2E) comments and GitHub issues:
+
+**Is my data uploaded anywhere, or sent to you?**
+No. Downloading, overlay merging, and metadata writing all happen locally on your machine. Nothing is sent to any external server — see [Privacy](#-important-notes) above.
+
+**Does this work on my phone (Android/iPhone) or tablet?**
+No. It's a desktop application for Windows, macOS, and Linux only — there's no mobile build. Run it on a computer, then copy the output folder to your phone afterward if you want the files there.
+
+**Windows/Chrome says the `.exe` is dangerous or flags it as a virus — is it safe?**
+This is a common false positive for unsigned, open-source PyInstaller executables — it isn't flagged by Snapchat or anyone else as malicious. Click "Run anyway" on the Windows warning, or [build it from source](#️-building-from-source) yourself if you'd rather not run a downloaded binary.
+
+**I get "no download URL found" or "no memories found" for my selected folder.**
+This means your `memories_history.json` doesn't contain download links (either they expired — they're only valid ~7 days after your export — or your export didn't include them). Double-check you selected the folder containing your `mydata~*.zip` files or extracted export, and if URLs are genuinely missing, use **Local Files** mode instead (see the note in [step 5](#-using-the-executable-recommended)).
+
+**Snapchat says "Security Restriction, try again after 72 hours" when I request my data.**
+That's a rate limit Snapchat applies on their end to data export requests, not something this app controls. Wait out the cooldown and request again.
+
+**Do I need to re-request my export within 48 hours, or re-select every toggle each time?**
+Each data request generates a fresh set of download links that expire after about 7 days (not 48 hours), so just avoid letting an export sit too long before processing it. If you only need memories, you only need to toggle **Memories** + **Export JSON Files** — toggles for chat media, shared stories, etc. are optional extras that add more to download, not requirements.
+
+**Can I delete VLC/FFmpeg after processing is done?**
+Yes. They're only used during processing (H.264 conversion and overlay merging) — once your files are downloaded and merged, removing VLC/FFmpeg has no effect on the already-processed output. Note that FFmpeg installed via **Download for me** lives in the app's own data folder rather than a system location, so there's nothing extra to uninstall if you want to remove it.
+
+**Some older (or "My Eyes Only") memories say the file format is unsupported, even with VLC installed.**
+This is usually a quirk of Snapchat's own export for those files (older encodings or encrypted My Eyes Only media), not something the app can decode — it's on Snapchat's end.
+
+**Processing gets stuck or stops partway through a very large export (thousands of memories).**
+Enable **Skip existing files (resume mode)** and just run the task again — it picks up where it left off. For very large exports (tens of thousands of memories), expect multiple passes/runs to get through everything.
+
+**If I move the processed files into a folder that already has some of these photos/videos, will it detect duplicates?**
+No — duplicate detection only applies within the app's own output folder (via resume mode). It doesn't scan other folders on your computer, so you'd want to de-duplicate manually (e.g., by matching filenames/dates) if merging into an existing library.
+
+**Can chat media be sorted/grouped by sender afterward?**
+It already is — Chat Media mode automatically creates one output subfolder per conversation (named from your chat history) as long as your export includes the `json/` chat history. You can turn this off under Advanced options if you'd rather have one flat folder.
+
+**A few photos/videos have the wrong timestamp (off by a minute or two from a neighboring file).**
+This is a known edge case: when several memories were captured within the same second or two, matching can occasionally assign a neighboring timestamp instead of the exact one. Dates are reliable; exact times for a handful of closely-timed files may be off by a minute or two.
+
+**Do I need 7-Zip or another tool to extract the export ZIPs first?**
+No — point the app at the folder containing your `mydata~*.zip` files and it extracts them automatically. No manual unzipping or 7-Zip step is required.
+
 ## 🤝 Contributing
 
 Contributions welcome! Feel free to:
