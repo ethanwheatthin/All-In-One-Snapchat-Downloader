@@ -860,6 +860,11 @@ class SnapchatDownloaderGUI:
 
         self.skip_existing = tk.BooleanVar(value=False)
         self.reconvert_videos = tk.BooleanVar(value=False)
+        # Video quality policy (issue #14). H.264 is remuxed losslessly unless
+        # the user opts into the iCloud-compatible re-encode; HEVC is
+        # transcoded unless they opt out.
+        self.icloud_compatible_video = tk.BooleanVar(value=False)
+        self.transcode_hevc = tk.BooleanVar(value=True)
 
         # Wizard routing: which task card was picked ("memories"/"chatmedia")
         # and, for memories, which method ("local" processing of the export
@@ -869,6 +874,9 @@ class SnapchatDownloaderGUI:
         self.memories_method = tk.StringVar(value="local")
 
         self._load_settings()
+        self._sync_video_policy()
+        for _var in (self.icloud_compatible_video, self.transcode_hevc):
+            _var.trace_add("write", lambda *_: self._sync_video_policy())
 
         # Configure style
         self.setup_styles()
@@ -1009,9 +1017,19 @@ class SnapchatDownloaderGUI:
             "use_gps_tz": self.use_gps_tz,
             "skip_existing": self.skip_existing,
             "reconvert_videos": self.reconvert_videos,
+            "icloud_compatible_video": self.icloud_compatible_video,
+            "transcode_hevc": self.transcode_hevc,
             "skip_existing_local": self.skip_existing_local,
             "group_by_conversation": self.group_by_conversation,
         }
+
+    def _sync_video_policy(self):
+        try:
+            video_utils.set_video_policy(
+                icloud_compatible=self.icloud_compatible_video.get(),
+                transcode_hevc=self.transcode_hevc.get())
+        except Exception:
+            pass
 
     def _load_settings(self):
         """Restore last-used paths/options so repeat runs are click-through."""
@@ -1846,11 +1864,12 @@ class SnapchatDownloaderGUI:
                             log_local("  ⚠ Cancelled during conversion")
                             return logs, False, False
                         
-                        # Convert all videos to H.264 by default
-                        log_local("  🔄 Converting to H.264...")
+                        # H.264 is remuxed losslessly; only HEVC/other codecs
+                        # (or opt-in iCloud fixes) are re-encoded (issue #14).
+                        log_local("  🔄 Checking video codec...")
 
                         # Check if any conversion tool is available
-                        if not HAS_PYAV and not find_vlc_executable() and not HAS_VLC:
+                        if not HAS_PYAV and not find_vlc_executable() and not HAS_VLC and not check_ffmpeg():
                             log_local("  ⚠ No conversion tools available - keeping original format")
                             log_local("  ℹ Install PyAV (pip install av) or VLC for automatic H.264 conversion")
                             # Still count as success - video was downloaded
@@ -1863,7 +1882,7 @@ class SnapchatDownloaderGUI:
                                     failed_dir_path=failed_conversions_dir
                                 )
                                 if success:
-                                    log_local("  ✓ Converted to H.264")
+                                    log_local("  ✓ Video ready (H.264 kept lossless when possible)")
                                     # Replace original with converted file
                                     try:
                                         os.remove(str(file_path))
@@ -3195,19 +3214,16 @@ def _apply_file_metadata(path, is_video, date_obj, lat, lon, tz_offset, log_fn):
     """Write EXIF / MP4 metadata and set file timestamps."""
     ext = os.path.splitext(path)[1].lower()
     if is_video:
-        # Local Snapchat exports come pre-encoded as H.264 already, but with
-        # a High profile and full-range/non-standard color tags that iCloud
-        # Photos' web uploader rejects ("file type not supported"). Unlike
-        # the direct-download path, files reaching this helper (local folder
-        # import, chat media) were never routed through H.264 conversion at
-        # all, so the profile/color fix never applied to them. Re-encode in
-        # place here too, before writing metadata.
-        if HAS_PYAV or find_vlc_executable() or HAS_VLC:
+        # Local Snapchat exports usually come as H.264 already. They are
+        # remuxed losslessly; only HEVC/other codecs, or High-profile /
+        # full-range H.264 when the user opted into iCloud compatibility
+        # (iCloud's web uploader rejects those), are re-encoded (issue #14).
+        if HAS_PYAV or find_vlc_executable() or HAS_VLC or check_ffmpeg():
             try:
                 failed_dir = str(Path(path).parent / "failed_conversions")
                 ok, result = convert_hevc_to_h264(path, output_path=path, failed_dir_path=failed_dir)
                 if ok:
-                    log_fn("    ✓ Converted to H.264 (iCloud-compatible)")
+                    log_fn("    ✓ Video ready (H.264 kept lossless when possible)")
                 else:
                     log_fn(f"    ⚠ Conversion failed: {result}")
             except Exception as exc:

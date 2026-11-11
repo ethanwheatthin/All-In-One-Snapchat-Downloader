@@ -200,6 +200,195 @@ def check_vlc():
     return HAS_VLC
 
 
+# ---------------------------------------------------------------------------
+# Non-destructive video policy (issue #14)
+#
+# Re-encoding a lossy video is a permanent generational loss, so the pipeline
+# only transcodes when it has to:
+#   * HEVC (and any non-H.264 codec) -> transcode to H.264 (HEVC can be kept
+#     as-is when transcode_hevc is off).
+#   * H.264 -> lossless remux (stream copy), unless the user opted into the
+#     iCloud-compatible re-encode and the stream is High profile / full range.
+#   * Audio is always stream-copied when the source is AAC/MP3/ALAC.
+# ---------------------------------------------------------------------------
+
+VIDEO_POLICY = {
+    # Re-encode H.264 that iCloud Photos' web uploader rejects (High profile,
+    # full-range colour). Off by default: it costs one lossy generation.
+    "icloud_compatible": False,
+    # Transcode HEVC/H.265 to H.264 for wider player support.
+    "transcode_hevc": True,
+}
+
+_MP4_COPYABLE_AUDIO = {"aac", "mp3", "alac"}
+_ICLOUD_OK_PROFILES = {"baseline", "constrained baseline", "main"}
+
+
+def set_video_policy(icloud_compatible=None, transcode_hevc=None):
+    """Update the module-wide transcode policy (called from the GUI)."""
+    if icloud_compatible is not None:
+        VIDEO_POLICY["icloud_compatible"] = bool(icloud_compatible)
+    if transcode_hevc is not None:
+        VIDEO_POLICY["transcode_hevc"] = bool(transcode_hevc)
+
+
+def mp4_output_args(output_path):
+    """Container flags every MP4/MOV output should carry.
+
+    +faststart moves the moov atom to the front so files stream / preview
+    immediately. -f mp4 is only forced for .mp4/.m4v so a .mov keeps its
+    QuickTime muxer.
+    """
+    args = ['-movflags', '+faststart']
+    if Path(str(output_path)).suffix.lower() in ('.mp4', '.m4v'):
+        args += ['-f', 'mp4']
+    return args
+
+
+def audio_codec_args(audio_codec):
+    """Copy audio when the MP4 container can hold it, otherwise AAC."""
+    if not audio_codec or (audio_codec or '').lower() in _MP4_COPYABLE_AUDIO:
+        return ['-c:a', 'copy']
+    return ['-c:a', 'aac', '-b:a', '192k']
+
+
+def probe_video_codecs(file_path):
+    """Return codec details for the first video/audio streams.
+
+    Keys: video_codec, audio_codec, profile, pix_fmt, color_range, width,
+    height. Values are lowercase strings (or None). Uses ffprobe, falling
+    back to PyAV.
+    """
+    info = {'video_codec': None, 'audio_codec': None, 'profile': None,
+            'pix_fmt': None, 'color_range': None, 'width': None, 'height': None,
+            'sample_rate': None, 'channels': None}
+
+    def _low(v):
+        return str(v).lower() if v not in (None, '', 'unknown') else None
+
+    if check_ffmpeg() and shutil.which('ffprobe'):
+        try:
+            import json
+            proc = subprocess.run(
+                ['ffprobe', '-v', 'error', '-show_entries',
+                 'stream=codec_type,codec_name,profile,pix_fmt,color_range,'
+                 'width,height,sample_rate,channels',
+                 '-of', 'json', str(file_path)],
+                capture_output=True, text=True, timeout=15,
+                creationflags=CREATE_NO_WINDOW, env=clean_subprocess_env())
+            if proc.returncode == 0:
+                for s in json.loads(proc.stdout or '{}').get('streams', []):
+                    if s.get('codec_type') == 'video' and info['video_codec'] is None:
+                        info['video_codec'] = _low(s.get('codec_name'))
+                        info['profile'] = _low(s.get('profile'))
+                        info['pix_fmt'] = _low(s.get('pix_fmt'))
+                        info['color_range'] = _low(s.get('color_range'))
+                        info['width'] = s.get('width')
+                        info['height'] = s.get('height')
+                    elif s.get('codec_type') == 'audio' and info['audio_codec'] is None:
+                        info['audio_codec'] = _low(s.get('codec_name'))
+                        info['sample_rate'] = s.get('sample_rate')
+                        info['channels'] = s.get('channels')
+                if info['video_codec']:
+                    return info
+        except Exception as e:
+            logging.debug(f"ffprobe codec probe failed for {file_path}: {e}")
+
+    if HAS_PYAV:
+        try:
+            with av.open(str(file_path)) as c:
+                if c.streams.video:
+                    vs = c.streams.video[0]
+                    cc = vs.codec_context
+                    info['video_codec'] = _low(cc.name)
+                    info['profile'] = _low(getattr(cc, 'profile', None))
+                    pf = getattr(cc, 'pix_fmt', None)
+                    if not pf and getattr(vs, 'format', None) is not None:
+                        pf = vs.format.name
+                    info['pix_fmt'] = _low(pf)
+                    cr = getattr(cc, 'color_range', None)
+                    info['color_range'] = {1: 'tv', 2: 'pc'}.get(cr, _low(cr))
+                    info['width'], info['height'] = vs.width, vs.height
+                if c.streams.audio:
+                    a = c.streams.audio[0]
+                    info['audio_codec'] = _low(a.codec_context.name)
+                    info['sample_rate'] = getattr(a, 'rate', None)
+                    info['channels'] = getattr(a, 'channels', None)
+        except Exception as e:
+            logging.debug(f"PyAV codec probe failed for {file_path}: {e}")
+    return info
+
+
+def decide_video_action(info, icloud_compatible=None, transcode_hevc=None):
+    """Return 'transcode', 'remux', or 'unknown' for probed codec info."""
+    if icloud_compatible is None:
+        icloud_compatible = VIDEO_POLICY["icloud_compatible"]
+    if transcode_hevc is None:
+        transcode_hevc = VIDEO_POLICY["transcode_hevc"]
+
+    vcodec = (info or {}).get('video_codec')
+    if not vcodec:
+        return 'unknown'
+    if vcodec in ('hevc', 'h265'):
+        return 'transcode' if transcode_hevc else 'remux'
+    if vcodec not in ('h264', 'avc', 'avc1'):
+        return 'transcode'
+    if icloud_compatible:
+        profile = info.get('profile') or ''
+        pix_fmt = info.get('pix_fmt') or ''
+        full_range = info.get('color_range') == 'pc' or pix_fmt.startswith('yuvj')
+        if profile not in _ICLOUD_OK_PROFILES or full_range or (pix_fmt and pix_fmt not in ('yuv420p', 'yuvj420p')):
+            return 'transcode'
+    return 'remux'
+
+
+def remux_video(input_path, output_path):
+    """Losslessly rewrite the container: stream copy, +faststart.
+
+    Rotation (display matrix) and the original bitstreams are kept untouched.
+    Without ffmpeg the file is copied byte-for-byte instead.
+    Returns (success, output_path or error).
+    """
+    input_path = Path(str(input_path))
+    output_path = Path(str(output_path))
+    temp_output = output_path.parent / f"{output_path.stem}.remux_temp{output_path.suffix}"
+    try:
+        if check_ffmpeg():
+            cmd = ['ffmpeg', '-y', '-i', str(input_path),
+                   '-map', '0', '-c', 'copy', '-map_metadata', '0',
+                   *mp4_output_args(output_path), str(temp_output)]
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300,
+                                  creationflags=CREATE_NO_WINDOW, env=clean_subprocess_env())
+            if proc.returncode != 0 or not temp_output.exists() or temp_output.stat().st_size < 1000:
+                # Some odd data streams can't go into MP4; retry with A/V only.
+                cmd = ['ffmpeg', '-y', '-i', str(input_path),
+                       '-map', '0:v:0', '-map', '0:a?', '-c', 'copy', '-map_metadata', '0',
+                       *mp4_output_args(output_path), str(temp_output)]
+                proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300,
+                                      creationflags=CREATE_NO_WINDOW, env=clean_subprocess_env())
+            if proc.returncode != 0 or not temp_output.exists() or temp_output.stat().st_size < 1000:
+                raise RuntimeError(f"ffmpeg remux failed: {(proc.stderr or '')[-300:]}")
+            os.replace(str(temp_output), str(output_path))
+        elif input_path.resolve() != output_path.resolve():
+            shutil.copy2(str(input_path), str(output_path))
+        logging.info(f"Remuxed without re-encoding: {output_path}")
+        return True, output_path
+    except Exception as e:
+        logging.warning(f"Remux failed for {input_path}: {e}")
+        if temp_output.exists():
+            try:
+                temp_output.unlink()
+            except Exception:
+                pass
+        # Fallback: a plain copy is still lossless.
+        try:
+            if input_path.resolve() != output_path.resolve():
+                shutil.copy2(str(input_path), str(output_path))
+            return True, output_path
+        except Exception as copy_err:
+            return False, str(copy_err)
+
+
 def find_vlc_executable():
     if sys.platform == 'win32':
         vlc_paths = [
@@ -359,7 +548,7 @@ def convert_with_vlc_python(input_path, output_path):
         output_str = str(output_path).replace('\\', '/')
         transcode_options = (
             f"#transcode{{"
-            f"vcodec=h264,venc=x264{{preset=medium,profile=main}},acodec=mp3,ab=192,channels=2,samplerate=44100}}:"
+            f"vcodec=h264,venc=x264{{preset=medium,profile=main}}}}:"
             f"standard{{access=file,mux=mp4,dst={output_str}}}"
         )
         media.add_option(f":sout={transcode_options}")
@@ -428,7 +617,7 @@ def convert_with_vlc_subprocess(input_path, output_path):
         vlc_path, "-I", "dummy", "--no-repeat", "--no-loop",
         str(input_path),
         "--sout",
-        (f"#transcode{{vcodec=h264,venc=x264{{preset=medium,profile=main}},acodec=mp3,ab=192,channels=2,samplerate=44100}}:"
+        (f"#transcode{{vcodec=h264,venc=x264{{preset=medium,profile=main}}}}:"
          f"standard{{access=file,mux=mp4,dst={output_str}}}"),
         "vlc://quit"
     ]
@@ -926,6 +1115,8 @@ def set_video_metadata_ffmpeg(file_path, date_obj, latitude, longitude, timezone
         else:
             logging.info(f"No GPS data available for video: {file_path}")
         
+        # No +faststart here: relocate_apple_metadata() can only resize moov
+        # safely when moov is the last top-level box (after mdat).
         cmd.append(str(temp_output))
 
         logging.debug(f"Setting video metadata with ffmpeg: {' '.join(cmd)}")
@@ -967,8 +1158,12 @@ def set_video_metadata_ffmpeg(file_path, date_obj, latitude, longitude, timezone
         return False
 
 
-def enforce_portrait_video(file_path, timeout=300):
+def enforce_portrait_video(file_path, timeout=300, bake=False):
     """Apply rotation metadata to video frames so the file displays correctly.
+
+    By default this is a no-op: players honour the display matrix, so baking
+    the rotation into the pixels would only cost a lossy re-encode (issue
+    #14). Pass bake=True to force the old re-encoding behaviour.
     
     Only rotates when explicit rotation metadata (rotate tag or display matrix)
     is present. Does NOT blindly force landscape videos to portrait — genuinely
@@ -988,6 +1183,10 @@ def enforce_portrait_video(file_path, timeout=300):
         # Genuinely landscape content should NOT be forced to portrait.
         return True, "No rotation needed"
 
+    if not bake:
+        logging.info(f"enforce_portrait: keeping {rotation}° as display metadata (no re-encode)")
+        return True, "Rotation kept as metadata"
+
     # Try ffmpeg first — let it auto-rotate naturally
     if check_ffmpeg():
         try:
@@ -1004,6 +1203,7 @@ def enforce_portrait_video(file_path, timeout=300):
                 '-color_primaries', 'bt709', '-color_trc', 'bt709',
                 '-c:a', 'copy',
                 '-metadata:s:v:0', 'rotate=0',   # Strip any leftover rotate tag
+                *mp4_output_args(out_path),
                 out_path
             ]
             logging.info(f"enforce_portrait: applying {rotation}° via ffmpeg auto-rotate")
@@ -1153,15 +1353,18 @@ def _convert_with_ffmpeg(input_path, output_path=None):
         # 2. Output frames are in correct display orientation
         # 3. We strip the rotate tag just in case; the display matrix is consumed
         #    during auto-rotation and will not be written to the output.
+        audio_codec = probe_video_codecs(input_path).get('audio_codec')
         cmd = [
             'ffmpeg', '-y',
             '-i', str(input_path),
+            '-map', '0:v:0', '-map', '0:a?',
             '-c:v', 'libx264', '-crf', '18', '-preset', 'veryfast',
             '-profile:v', 'main', '-level', '4.0', '-pix_fmt', 'yuv420p',
             '-color_range', 'tv', '-colorspace', 'bt709',
             '-color_primaries', 'bt709', '-color_trc', 'bt709',
-            '-c:a', 'copy',
+            *audio_codec_args(audio_codec),
             '-metadata:s:v:0', 'rotate=0',  # Strip any leftover rotate tag
+            *mp4_output_args(output_path),
             str(temp_output)
         ]
         
@@ -1211,13 +1414,35 @@ def _convert_with_ffmpeg(input_path, output_path=None):
         return False, str(e)
 
 
-def convert_hevc_to_h264(input_path, output_path=None, max_attempts=3, failed_dir_path="downloads/failed_conversions"):
-    """Convert video to H.264 using atomic temp file approach with validation.
-    
+def convert_hevc_to_h264(input_path, output_path=None, max_attempts=3, failed_dir_path="downloads/failed_conversions",
+                         icloud_compatible=None, transcode_hevc=None):
+    """Make a video H.264/MP4 with as little quality loss as possible.
+
+    The source codec is probed first. Video that is already H.264 (or HEVC
+    with transcode_hevc off) is remuxed losslessly - the original video and
+    audio bitstreams are kept. Only other codecs, HEVC, or H.264 that fails
+    the opt-in iCloud check are re-encoded, and even then audio is copied.
+    icloud_compatible / transcode_hevc default to VIDEO_POLICY.
+
     Returns:
         Tuple of (success: bool, result: Path or error_message: str)
     """
     input_path = sanitize_path(input_path)
+
+    info = probe_video_codecs(input_path)
+    action = decide_video_action(info, icloud_compatible, transcode_hevc)
+    if action == 'remux':
+        target = input_path.parent / f"{input_path.stem}_converted{input_path.suffix}" \
+            if output_path is None else sanitize_path(output_path)
+        logging.info(f"{input_path.name}: {info.get('video_codec')}/{info.get('audio_codec')} - "
+                     f"remuxing without re-encoding")
+        ok, result = remux_video(input_path, target)
+        if ok:
+            return ok, result
+        logging.warning(f"Lossless remux failed ({result}); falling back to transcode")
+    else:
+        logging.info(f"{input_path.name}: {info.get('video_codec')} ({info.get('profile')}) - transcoding to H.264")
+    audio_copy = (info.get('audio_codec') or '') in _MP4_COPYABLE_AUDIO
     
     if not HAS_PYAV:
         logging.warning("PyAV not installed. Attempting ffmpeg then VLC fallback...")
@@ -1295,7 +1520,7 @@ def convert_hevc_to_h264(input_path, output_path=None, max_attempts=3, failed_di
                 rotation = 0  # Don't swap dims either
 
             logging.info(f"[{conversion_id}] Creating temp output: {temp_output}")
-            output_container = av.open(str(temp_output), 'w')
+            output_container = av.open(str(temp_output), 'w', options={'movflags': '+faststart'})
 
             # Snapchat exports sometimes carry a non-integer average_rate (e.g.
             # 33750/1127 ~= 29.94) with frame gaps that don't evenly divide it.
@@ -1334,11 +1559,23 @@ def convert_hevc_to_h264(input_path, output_path=None, max_attempts=3, failed_di
 
             audio_stream = None
             output_audio_stream = None
+            audio_passthrough = False
             if input_container.streams.audio:
                 audio_stream = input_container.streams.audio[0]
-                output_audio_stream = output_container.add_stream('aac', rate=audio_stream.rate)
-                if hasattr(audio_stream, 'layout') and audio_stream.layout:
-                    output_audio_stream.layout = audio_stream.layout
+                if audio_copy:
+                    try:
+                        if hasattr(output_container, 'add_stream_from_template'):
+                            output_audio_stream = output_container.add_stream_from_template(audio_stream)
+                        else:
+                            output_audio_stream = output_container.add_stream(template=audio_stream)
+                        audio_passthrough = True
+                    except Exception as tmpl_err:
+                        logging.debug(f"[{conversion_id}] Audio passthrough unavailable: {tmpl_err}")
+                        output_audio_stream = None
+                if output_audio_stream is None:
+                    output_audio_stream = output_container.add_stream('aac', rate=audio_stream.rate)
+                    if hasattr(audio_stream, 'layout') and audio_stream.layout:
+                        output_audio_stream.layout = audio_stream.layout
 
             logging.info(f"[{conversion_id}] Processing frames...")
             for packet in input_container.demux():
@@ -1383,6 +1620,11 @@ def convert_hevc_to_h264(input_path, output_path=None, max_attempts=3, failed_di
                             for out_packet in output_video_stream.encode(frame):
                                 output_container.mux(out_packet)
                         frame_index += 1
+                elif packet.stream.type == 'audio' and output_audio_stream and audio_passthrough:
+                    if packet.stream is not audio_stream or packet.dts is None:
+                        continue  # skip extra audio tracks and flush packets
+                    packet.stream = output_audio_stream
+                    output_container.mux(packet)
                 elif packet.stream.type == 'audio' and output_audio_stream:
                     for frame in packet.decode():
                         for out_packet in output_audio_stream.encode(frame):
@@ -1391,7 +1633,7 @@ def convert_hevc_to_h264(input_path, output_path=None, max_attempts=3, failed_di
             logging.info(f"[{conversion_id}] Flushing streams...")
             for packet in output_video_stream.encode():
                 output_container.mux(packet)
-            if output_audio_stream:
+            if output_audio_stream and not audio_passthrough:
                 for packet in output_audio_stream.encode():
                     output_container.mux(packet)
 

@@ -11,6 +11,7 @@ from datetime import datetime
 
 from fs_utils import is_macos_metadata
 from subprocess_env import clean_subprocess_env
+import video_utils
 
 # Windows-specific subprocess flag to prevent command windows from popping up
 CREATE_NO_WINDOW = 0x08000000 if sys.platform == 'win32' else 0
@@ -205,7 +206,7 @@ def _merge_animated_overlay_on_image(main_img_path, overlay_path, output_path):
                'scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p[outv]',
                '-map', '[outv]', '-t', f'{duration:.3f}',
                '-c:v', 'libx264', '-crf', '18', '-preset', 'veryfast',
-               '-movflags', '+faststart', str(output_path)]
+               *video_utils.mp4_output_args(output_path), str(output_path)]
         rc, err = _run_ffmpeg(cmd)
         if rc != 0:
             logging.error(f"ffmpeg animated-overlay photo merge failed: {err[-500:]}")
@@ -356,6 +357,7 @@ def merge_video_overlay(main_video_path, overlay_image_path, output_path):
             '-map', '1:a?',  # Copy audio from main video if it exists
             '-c:a', 'copy',
             '-c:v', 'libx264', '-crf', '18', '-preset', 'veryfast',
+            *video_utils.mp4_output_args(output_path),
             str(output_path)
         ]
 
@@ -461,6 +463,44 @@ def merge_video_overlay(main_video_path, overlay_image_path, output_path):
                 logging.debug(f"Could not remove normalized overlay: {cleanup_error}")
 
 
+_CONCAT_KEYS = ('video_codec', 'profile', 'pix_fmt', 'width', 'height',
+                'audio_codec', 'sample_rate', 'channels')
+
+
+def _concat_stream_copy(input_paths, output_path):
+    """Join segments with the concat demuxer (-c copy) when params match."""
+    infos = [video_utils.probe_video_codecs(p) for p in input_paths]
+    first = tuple(infos[0].get(k) for k in _CONCAT_KEYS)
+    if not first[0]:
+        return False, "could not probe segments"
+    if any(tuple(i.get(k) for k in _CONCAT_KEYS) != first for i in infos[1:]):
+        return False, "segment codec parameters differ"
+
+    list_fd, list_path = tempfile.mkstemp(suffix='.txt', prefix='concat_')
+    try:
+        with os.fdopen(list_fd, 'w', encoding='utf-8') as fh:
+            for p in input_paths:
+                safe = os.path.abspath(str(p)).replace('\\', '/').replace("'", "'\\''")
+                fh.write(f"file '{safe}'\n")
+        cmd = ['ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', list_path,
+               '-map', '0:v:0', '-map', '0:a?', '-c', 'copy',
+               *video_utils.mp4_output_args(output_path), str(output_path)]
+        rc, err = _run_ffmpeg(cmd, timeout=max(300, 60 * len(input_paths)))
+        if rc != 0:
+            lines = (err or '').strip().splitlines()
+            return False, lines[-1] if lines else 'ffmpeg failed'
+        if not os.path.exists(output_path) or os.path.getsize(output_path) < 1000:
+            return False, "output too small"
+        return True, str(output_path)
+    except Exception as e:
+        return False, str(e)
+    finally:
+        try:
+            os.remove(list_path)
+        except OSError:
+            pass
+
+
 def concat_video_segments(input_paths, output_path):
     """Concatenate multiple video files into one using ffmpeg.
 
@@ -468,15 +508,21 @@ def concat_video_segments(input_paths, output_path):
     as a sequence of contiguous segments (issues #47, #53). After per-segment
     overlay merging, this joins the segments back into the original recording.
 
-    Re-encodes using the filter_complex concat filter so it tolerates segments
-    with mismatched codec params or one segment having audio while another
-    doesn't. Returns (True, output_path) on success, (False, error_message)
-    otherwise.
+    When every segment shares the same codec parameters the concat demuxer
+    joins them with stream copy - no re-encode (issue #14). Otherwise it
+    falls back to the filter_complex concat filter, which tolerates mismatched
+    params or a segment missing audio but has to re-encode.
+    Returns (True, output_path) on success, (False, error_message) otherwise.
     """
     if shutil.which('ffmpeg') is None or shutil.which('ffprobe') is None:
         return False, "ffmpeg/ffprobe not found"
     if len(input_paths) < 2:
         return False, "need at least two segments to concat"
+
+    ok, result = _concat_stream_copy(input_paths, output_path)
+    if ok:
+        return ok, result
+    logging.info(f"Lossless concat not possible ({result}); re-encoding segments")
 
     try:
         segments_have_audio = []
@@ -508,6 +554,7 @@ def concat_video_segments(input_paths, output_path):
                 '-map', '[outv]', '-map', '[outa]',
                 '-c:v', 'libx264', '-crf', '18', '-preset', 'veryfast',
                 '-c:a', 'aac', '-b:a', '192k',
+                *video_utils.mp4_output_args(output_path),
                 str(output_path),
             ])
         else:
@@ -517,6 +564,7 @@ def concat_video_segments(input_paths, output_path):
                 '-filter_complex', filter_complex,
                 '-map', '[outv]',
                 '-c:v', 'libx264', '-crf', '18', '-preset', 'veryfast',
+                *video_utils.mp4_output_args(output_path),
                 str(output_path),
             ])
 
