@@ -43,12 +43,23 @@ jobs:
         with:
           python-version: '3.12'
 
-      # Tk shared libraries needed so the bundled tkinter can load
+      # Tk shared libraries needed so the bundled tkinter can load. The runner
+      # image usually ships them already, so only hit apt when tkinter can't
+      # load - and retry, since Ubuntu mirrors intermittently fail DNS.
       - name: Install Tk (Linux)
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y python3-tk
+          if python -c "import tkinter; tkinter.Tcl()" 2>/dev/null; then
+            echo "tkinter already works - skipping apt"
+            exit 0
+          fi
+          for i in 1 2 3 4; do
+            sudo apt-get update -o Acquire::Retries=3 && \
+              sudo apt-get install -y -o Acquire::Retries=3 python3-tk && break
+            echo "apt attempt $i failed; retrying in $((i * 15))s"
+            sleep $((i * 15))
+          done
+          python -c "import tkinter; tkinter.Tcl(); print('tkinter OK')"
 
       # numpy publishes both an old-macOS wheel and a macOS 14+ (Accelerate)
       # wheel; pip picks the newest tag the runner supports, so the app then
