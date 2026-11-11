@@ -1006,7 +1006,16 @@ class OptionsStep(WizardStep):
             text="Sort into a folder per conversation / group chat (recommended)",
             variable=app.group_by_conversation, style="Card.TCheckbutton")
 
-        # all routes
+        # all routes — video quality policy (issue #14)
+        self.hevc_check = ttk.Checkbutton(
+            self.adv_frame,
+            text="Convert HEVC/H.265 videos to H.264 for wider player support (recommended)",
+            variable=app.transcode_hevc, style="Card.TCheckbutton")
+        self.icloud_check = ttk.Checkbutton(
+            self.adv_frame,
+            text="Re-encode H.264 for iCloud Photos web upload (lossy — off keeps original quality)",
+            variable=app.icloud_compatible_video, style="Card.TCheckbutton")
+
         self.gps_check = ttk.Checkbutton(
             self.adv_frame, text="Use GPS coordinates to determine local timezone (recommended)",
             variable=app.use_gps_tz, style="Card.TCheckbutton")
@@ -1068,7 +1077,8 @@ class OptionsStep(WizardStep):
     def _layout_advanced(self):
         mode = self.app.mode.get()
         for widget in (self.retries_row, self.resume_check, self.reconvert_check,
-                       self.skip_local_check, self.group_conv_check, self.gps_check):
+                       self.skip_local_check, self.group_conv_check, self.gps_check,
+                       self.hevc_check, self.icloud_check):
             widget.pack_forget()
         if mode == "download":
             self.retries_row.pack(anchor=tk.W, pady=(0, 8))
@@ -1079,6 +1089,8 @@ class OptionsStep(WizardStep):
             if mode == "chatmedia":
                 self.group_conv_check.pack(anchor=tk.W, pady=(0, 4))
         self.gps_check.pack(anchor=tk.W, pady=(4, 0))
+        self.hevc_check.pack(anchor=tk.W, pady=(4, 0))
+        self.icloud_check.pack(anchor=tk.W, pady=(4, 0))
 
     def _toggle_reconvert(self):
         if self.app.skip_existing.get() and self.app.mode.get() == "download":
