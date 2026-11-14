@@ -992,6 +992,12 @@ class OptionsStep(WizardStep):
             self.adv_frame, text="Skip already-processed files in the output folder",
             variable=app.skip_existing_local, style="Card.TCheckbutton")
 
+        # local memories only
+        self.stitch_check = ttk.Checkbutton(
+            self.adv_frame,
+            text="Join videos Snapchat split into 10-second clips (recommended)",
+            variable=app.stitch_segments_local, style="Card.TCheckbutton")
+
         # chatmedia only
         self.group_conv_check = ttk.Checkbutton(
             self.adv_frame,
@@ -1062,7 +1068,8 @@ class OptionsStep(WizardStep):
     def _layout_advanced(self):
         mode = self.app.mode.get()
         for widget in (self.retries_row, self.resume_check, self.reconvert_check,
-                       self.skip_local_check, self.group_conv_check, self.gps_check):
+                       self.skip_local_check, self.stitch_check,
+                       self.group_conv_check, self.gps_check):
             widget.pack_forget()
         if mode == "download":
             self.retries_row.pack(anchor=tk.W, pady=(0, 8))
@@ -1070,6 +1077,8 @@ class OptionsStep(WizardStep):
             self._toggle_reconvert()
         else:
             self.skip_local_check.pack(anchor=tk.W, pady=(0, 4))
+            if mode == "local":
+                self.stitch_check.pack(anchor=tk.W, pady=(0, 4))
             if mode == "chatmedia":
                 self.group_conv_check.pack(anchor=tk.W, pady=(0, 4))
         self.gps_check.pack(anchor=tk.W, pady=(4, 0))

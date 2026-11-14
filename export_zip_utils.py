@@ -21,11 +21,12 @@ app skips the expensive per-member re-scan when those ZIPs are unchanged.
 import json
 import logging
 import os
+import struct
 import time
 import zipfile
 
 from fs_utils import is_macos_metadata
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Top-level names that identify a Snapchat export ZIP
 EXPORT_TOP_LEVEL_HINTS = ("memories", "chat_media", "json", "html", "index.html")
@@ -148,10 +149,35 @@ def _safe_target(dest_root_abs, member_name):
     return None
 
 
+def _zip_ut_mtime(info):
+    """Exact Unix mtime from the entry's 'UT' extra field (0x5455), or None."""
+    extra = info.extra or b""
+    i = 0
+    while i + 4 <= len(extra):
+        header_id, size = struct.unpack("<HH", extra[i:i + 4])
+        body = extra[i + 4:i + 4 + size]
+        if header_id == 0x5455 and len(body) >= 5 and body[0] & 1:
+            return struct.unpack("<I", body[1:5])[0]
+        i += 4 + size
+    return None
+
+
 def _restore_mtime(target, info):
-    """Set the extracted file's mtime from the ZIP entry's DOS timestamp."""
+    """Set the extracted file's mtime from the ZIP entry's timestamp.
+
+    The DOS field only has 2-second resolution, so two snaps saved a second
+    apart get the same time and can be paired with each other's JSON entry.
+    Snapchat also writes the exact second in the UT extra field; when present
+    its UTC wall clock is used instead. Both are applied the same way — the
+    UTC wall time read as local, like every extractor does with the DOS
+    field — so downstream offset detection behaves exactly as before.
+    """
     try:
-        ts = time.mktime(datetime(*info.date_time).timetuple())
+        wall = info.date_time
+        ut = _zip_ut_mtime(info)
+        if ut is not None:
+            wall = datetime.fromtimestamp(ut, timezone.utc).timetuple()[:6]
+        ts = time.mktime(datetime(*wall).timetuple())
         os.utime(target, (ts, ts))
     except Exception:
         pass  # invalid/pre-1980 timestamp — keep extraction time

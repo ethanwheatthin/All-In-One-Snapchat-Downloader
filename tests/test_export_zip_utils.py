@@ -151,3 +151,30 @@ def test_extract_memories_json_none_when_absent(tmp_path):
     zips = export_zip_utils.find_export_zips(str(tmp_path))
     dest = export_zip_utils.default_extract_root(str(tmp_path))
     assert export_zip_utils.extract_memories_json(zips, dest) is None
+
+
+def _info_with_ut(dos_time, ut_seconds):
+    import struct
+    info = zipfile.ZipInfo("memories/x-main.mp4", date_time=dos_time)
+    info.extra = struct.pack("<HHBI", 0x5455, 5, 1, ut_seconds)
+    return info
+
+
+def test_restore_mtime_prefers_exact_ut_field(tmp_path):
+    # Snapchat writes UTC; DOS keeps only even seconds (:58), UT has :59.
+    from datetime import timezone
+    ut = int(datetime(2019, 1, 18, 19, 39, 59, tzinfo=timezone.utc).timestamp())
+    target = tmp_path / "f"
+    target.write_bytes(b"x")
+    export_zip_utils._restore_mtime(str(target), _info_with_ut((2019, 1, 18, 19, 39, 58), ut))
+    # Same convention as the DOS path (UTC wall clock read as local), exact second
+    expected = time.mktime(datetime(2019, 1, 18, 19, 39, 59).timetuple())
+    assert os.path.getmtime(target) == expected
+
+
+def test_restore_mtime_falls_back_to_dos_time(tmp_path):
+    target = tmp_path / "f"
+    target.write_bytes(b"x")
+    info = zipfile.ZipInfo("memories/x-main.mp4", date_time=(2019, 6, 15, 2, 31, 2))
+    export_zip_utils._restore_mtime(str(target), info)
+    assert os.path.getmtime(target) == time.mktime(datetime(2019, 6, 15, 2, 31, 2).timetuple())

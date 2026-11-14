@@ -60,6 +60,7 @@ Or [Buy Me a Coffee](https://buymeacoffee.com/ethancollins).
 - **Resume Downloads** — Skip already downloaded files to resume interrupted sessions
 - **Overlay Merging** — Automatically merges caption/sticker overlays back onto photos and videos
 - **Metadata Preservation** — Embeds original dates and GPS coordinates into EXIF data (images) and file metadata (videos)
+- **Rejoin Split Videos** — Older recordings that Snapchat saved as a run of 10-second clips are stitched back into one video (on by default; toggle under **Advanced options**)
 - **Video Conversion** — Automatic H.264 conversion that plays on Windows and uploads to iCloud Photos, applied to downloads, local-file imports, and chat media alike
 - **One-click tool setup** — FFmpeg and VLC can be downloaded and installed from inside the app
 - **Organized output** — Memories are sorted into Year / Month / Day folders

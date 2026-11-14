@@ -329,6 +329,22 @@ def merge_video_overlay(main_video_path, overlay_image_path, output_path):
                 logging.debug(f"Could not remove normalized overlay: {cleanup_error}")
 
 
+def probe_duration(path):
+    """Container duration in seconds via ffprobe, or None if unknown."""
+    if shutil.which('ffprobe') is None:
+        return None
+    try:
+        probe = subprocess.run(
+            ['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+             '-of', 'default=nw=1:nk=1', str(path)],
+            capture_output=True, text=True, timeout=15,
+            creationflags=CREATE_NO_WINDOW, env=clean_subprocess_env(),
+        )
+        return float(probe.stdout.strip())
+    except Exception:
+        return None
+
+
 def concat_video_segments(input_paths, output_path):
     """Concatenate multiple video files into one using ffmpeg.
 

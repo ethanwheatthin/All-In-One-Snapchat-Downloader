@@ -93,6 +93,7 @@ logging.basicConfig(
 import snap_utils, exif_utils, video_utils, zip_utils, downloader
 import chat_media_utils
 import export_zip_utils
+import segment_utils
 from fs_utils import is_macos_metadata
 from subprocess_env import clean_subprocess_env
 
@@ -831,10 +832,9 @@ class SnapchatDownloaderGUI:
         # Chat media only: sort output into one folder per conversation/group
         # chat. Requires the export's json/ history to know the thread.
         self.group_by_conversation = tk.BooleanVar(value=True)
-        # Multi-segment video stitcher is disabled until we've tested it
-        # against real exports; flip default back to True + re-add a
-        # checkbox in wizard_ui.OptionsStep to re-enable.
-        self.stitch_segments_local = tk.BooleanVar(value=False)
+        # Join recordings Snapchat split into 10s segments back into one
+        # video. Verified against a real 2017-2026 export (264 recordings).
+        self.stitch_segments_local = tk.BooleanVar(value=True)
 
         self.skip_existing = tk.BooleanVar(value=False)
         self.reconvert_videos = tk.BooleanVar(value=False)
@@ -988,6 +988,7 @@ class SnapchatDownloaderGUI:
             "skip_existing": self.skip_existing,
             "reconvert_videos": self.reconvert_videos,
             "skip_existing_local": self.skip_existing_local,
+            "stitch_segments_local": self.stitch_segments_local,
             "group_by_conversation": self.group_by_conversation,
         }
 
@@ -2356,7 +2357,8 @@ class SnapchatDownloaderGUI:
                 try:
                     dt = datetime.strptime(item["Date"], "%Y-%m-%d %H:%M:%S UTC")
                     ts = int(dt.timestamp())
-                    json_by_ts.setdefault(ts, item)
+                    # Several memories can share a second, so keep them all
+                    json_by_ts.setdefault(ts, []).append(item)
                     json_by_day.setdefault(item["Date"][:10], []).append((dt, item))
                 except Exception:
                     pass
@@ -2369,44 +2371,14 @@ class SnapchatDownloaderGUI:
             )
 
             # Snapchat caps a single snap at ~10s; longer recordings are
-            # stored as a sequence of contiguous video entries (issues #47,
-            # #53). Group consecutive Video items at the same Location within
-            # 11s of each other so we can stitch them back together after
-            # per-segment processing.
+            # stored as a sequence of video entries exactly 10s apart at the
+            # same Location (issues #47, #53). Collect those candidates now;
+            # the stitch post-pass re-checks clip durations before joining,
+            # so separate snaps that merely started close together stay apart.
             segment_groups = []
             entry_to_group = {}
             if self.stitch_segments_local.get():
-                video_items = []
-                for item in json_items:
-                    if item.get("Media Type") != "Video":
-                        continue
-                    try:
-                        vdt = datetime.strptime(item["Date"], "%Y-%m-%d %H:%M:%S UTC")
-                    except Exception:
-                        continue
-                    video_items.append((vdt, item))
-                video_items.sort(key=lambda t: t[0])
-
-                current_group = []
-                prev_dt = None
-                prev_loc = None
-                for vdt, vitem in video_items:
-                    vloc = vitem.get("Location", "")
-                    contiguous = (
-                        prev_dt is not None
-                        and (vdt - prev_dt).total_seconds() <= 11
-                        and vloc == prev_loc
-                    )
-                    if contiguous:
-                        current_group.append(vitem)
-                    else:
-                        if len(current_group) > 1:
-                            segment_groups.append(current_group)
-                        current_group = [vitem]
-                    prev_dt = vdt
-                    prev_loc = vloc
-                if len(current_group) > 1:
-                    segment_groups.append(current_group)
+                segment_groups = segment_utils.find_segment_groups(json_items)
 
                 for gid, group in enumerate(segment_groups):
                     for vitem in group:
@@ -2459,6 +2431,9 @@ class SnapchatDownloaderGUI:
             # Captured per-file so the segment-stitch post-pass can pull the
             # right outputs back out in capture-time order.
             entry_to_output = {}
+            # json_idx of entries already given to a file, so a burst of snaps
+            # saved 1-3s apart can't all collapse onto the same entry.
+            claimed_entries = set()
 
             for folder_num, (memories_dir, main_files) in enumerate(all_folder_files, 1):
                 if self.stop_download:
@@ -2506,13 +2481,17 @@ class SnapchatDownloaderGUI:
 
                     uuid_part = re.sub(r"^\d{4}-\d{2}-\d{2}_", "", base).upper()
                     json_entry = json_by_uuid.get(uuid_part)
-                    if json_entry is None:
+                    if json_entry is not None:
+                        claimed_entries.add(json_entry["_json_idx"])
+                    else:
+                        # Nearest unclaimed entry of the same media type —
+                        # scanning from -3s used to grab the wrong neighbour
+                        # (e.g. a photo 1s earlier) and break stitching.
                         utc_ts = int(raw_mtime + tz_offset.total_seconds())
-                        for delta in range(-3, 4):
-                            candidate = json_by_ts.get(utc_ts + delta)
-                            if candidate is not None:
-                                json_entry = candidate
-                                break
+                        json_entry = segment_utils.pick_json_entry(
+                            json_by_ts, utc_ts,
+                            segment_utils.media_type_for(fname), claimed_entries,
+                        )
 
                     # Day-pairing fallback (issue #57): the export's URL fields
                     # may be empty, and ZIP extraction may have stomped mtimes,
@@ -2626,22 +2605,40 @@ class SnapchatDownloaderGUI:
             total_stitch_failed = 0
             if segment_groups and not self.stop_download:
                 self.log("━━━ Stitching multi-segment videos ━━━")
-                for gid, group in enumerate(segment_groups, 1):
+                # Build the list of runs to join. A candidate group is split
+                # wherever a segment wasn't produced (missing from the export)
+                # or a clip's real length doesn't fit a 10s segment — e.g.
+                # two separate 20s snaps saved 9s apart must stay separate.
+                runs = []
+                for group in segment_groups:
+                    pieces = []
+                    for vitem in sorted(group, key=lambda v: v["Date"]):
+                        out = entry_to_output.get(vitem["_json_idx"])
+                        if out is None:
+                            pieces.append(None)
+                        else:
+                            pieces.append((out[0], out[1], vitem))
+                    chunk = []
+                    for piece in pieces + [None]:
+                        if piece is not None:
+                            chunk.append(piece)
+                            continue
+                        if len(chunk) > 1:
+                            parts = [(dt, zip_utils.probe_duration(path), (dt, path, vitem))
+                                     for dt, path, vitem in chunk]
+                            runs.extend(segment_utils.split_runs(parts))
+                        chunk = []
+                candidates = sum(len(g) for g in segment_groups)
+                joined_clips = sum(len(r) for r in runs)
+                self.log(f"{len(runs):,} recording(s) to join from {joined_clips:,} clips "
+                         f"({candidates - joined_clips:,} candidate clip(s) left as-is: "
+                         f"missing from export or not a 10s segment)")
+
+                for gid, run in enumerate(runs, 1):
                     if self.stop_download:
                         break
-                    indices = [vitem["_json_idx"] for vitem in group]
-                    parts = [entry_to_output.get(i) for i in indices]
-                    if any(p is None for p in parts):
-                        missing = sum(1 for p in parts if p is None)
-                        self.log(
-                            f"[{gid}/{len(segment_groups)}] Skipped — "
-                            f"{missing}/{len(parts)} segment(s) not produced"
-                        )
-                        continue
-
-                    parts.sort(key=lambda t: t[0])
-                    segment_paths = [p[1] for p in parts]
-                    first_dt, first_path = parts[0]
+                    segment_paths = [p[1] for p in run]
+                    first_dt, first_path, first_entry = run[0]
                     out_dir = Path(os.path.dirname(first_path))
                     ext = os.path.splitext(first_path)[1].lower()
                     stem = Path(first_path).stem
@@ -2652,7 +2649,7 @@ class SnapchatDownloaderGUI:
                         counter += 1
 
                     self.log(
-                        f"[{gid}/{len(segment_groups)}] Joining "
+                        f"[{gid}/{len(runs)}] Joining "
                         f"{len(segment_paths)} segments → {joined_path.name}"
                     )
                     ok, result = zip_utils.concat_video_segments(segment_paths, str(joined_path))
@@ -2660,7 +2657,7 @@ class SnapchatDownloaderGUI:
                         # Re-apply metadata to the joined file using the first
                         # segment's date/GPS (the whole recording starts then).
                         try:
-                            entry = group[0]
+                            entry = first_entry
                             date_obj_utc = parse_date(entry["Date"])
                             latitude, longitude = parse_location(entry.get("Location", ""))
                             force_sys = not self.use_gps_tz.get()
