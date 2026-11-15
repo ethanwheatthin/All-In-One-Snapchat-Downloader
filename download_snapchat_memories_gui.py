@@ -66,10 +66,26 @@ def get_app_base_dir():
     Linux launchers) starts with cwd at '/' or another unwritable location,
     so fall back to the user's home directory in that case.
     """
-    cwd = Path.cwd()
-    if cwd != Path(cwd.anchor) and os.access(cwd, os.W_OK):
+    try:
+        cwd = Path.cwd()
+    except OSError:
+        return Path.home()
+    if cwd != Path(cwd.anchor) and _dir_is_writable(cwd):
         return cwd
     return Path.home()
+
+
+def _dir_is_writable(path):
+    """Really try to create a file: os.access(W_OK) is unreliable on Windows
+    (e.g. it reports C:\\Program Files\\... as writable for ACL-protected dirs)."""
+    probe = Path(path) / f".write_test_{os.getpid()}"
+    try:
+        with open(probe, "w"):
+            pass
+        probe.unlink()
+        return True
+    except OSError:
+        return False
 
 
 APP_BASE_DIR = get_app_base_dir()
@@ -77,14 +93,20 @@ LOG_FILE = str(APP_BASE_DIR / "debug.log")
 DEFAULT_OUTPUT_DIR = str(APP_BASE_DIR / "downloads")
 SETTINGS_FILE = str(APP_BASE_DIR / "gui_settings.json")
 
-# Configure logging
+# Configure logging (never let an unwritable log location stop the app)
+_log_handlers = [logging.StreamHandler()]  # Log to console
+try:
+    _log_handlers.insert(0, logging.FileHandler(LOG_FILE))  # Log to a file
+except OSError:
+    LOG_FILE = str(Path.home() / "debug.log")
+    try:
+        _log_handlers.insert(0, logging.FileHandler(LOG_FILE))
+    except OSError:
+        pass
 logging.basicConfig(
     level=logging.DEBUG,  # Set to DEBUG for verbose logging
     format='%(asctime)s [%(levelname)s] %(message)s',
-    handlers=[
-        logging.FileHandler(LOG_FILE),  # Log to a file
-        logging.StreamHandler()  # Log to console
-    ]
+    handlers=_log_handlers
 )
 
 # ==================== Core Functions (from original script) ====================
@@ -838,6 +860,11 @@ class SnapchatDownloaderGUI:
 
         self.skip_existing = tk.BooleanVar(value=False)
         self.reconvert_videos = tk.BooleanVar(value=False)
+        # Video quality policy (issue #14). H.264 is remuxed losslessly unless
+        # the user opts into the iCloud-compatible re-encode; HEVC is
+        # transcoded unless they opt out.
+        self.icloud_compatible_video = tk.BooleanVar(value=False)
+        self.transcode_hevc = tk.BooleanVar(value=True)
 
         # Wizard routing: which task card was picked ("memories"/"chatmedia")
         # and, for memories, which method ("local" processing of the export
@@ -847,6 +874,9 @@ class SnapchatDownloaderGUI:
         self.memories_method = tk.StringVar(value="local")
 
         self._load_settings()
+        self._sync_video_policy()
+        for _var in (self.icloud_compatible_video, self.transcode_hevc):
+            _var.trace_add("write", lambda *_: self._sync_video_policy())
 
         # Configure style
         self.setup_styles()
@@ -987,10 +1017,20 @@ class SnapchatDownloaderGUI:
             "use_gps_tz": self.use_gps_tz,
             "skip_existing": self.skip_existing,
             "reconvert_videos": self.reconvert_videos,
+            "icloud_compatible_video": self.icloud_compatible_video,
+            "transcode_hevc": self.transcode_hevc,
             "skip_existing_local": self.skip_existing_local,
             "stitch_segments_local": self.stitch_segments_local,
             "group_by_conversation": self.group_by_conversation,
         }
+
+    def _sync_video_policy(self):
+        try:
+            video_utils.set_video_policy(
+                icloud_compatible=self.icloud_compatible_video.get(),
+                transcode_hevc=self.transcode_hevc.get())
+        except Exception:
+            pass
 
     def _load_settings(self):
         """Restore last-used paths/options so repeat runs are click-through."""
@@ -1072,6 +1112,20 @@ class SnapchatDownloaderGUI:
         for candidate in candidates:
             if os.path.isfile(candidate):
                 return candidate
+        # Fallback: extracted exports may sit under wrapper folders of any
+        # (reasonable) depth. Skip the big media folders.
+        skip = {"memories", "chat_media", "html", "extracted"}
+        base_depth = os.path.normpath(root).count(os.sep)
+        try:
+            for dirpath, dirnames, filenames in os.walk(root):
+                depth = os.path.normpath(dirpath).count(os.sep) - base_depth
+                dirnames[:] = sorted(d for d in dirnames if d not in skip)
+                if depth >= 5:
+                    dirnames[:] = []
+                if "memories_history.json" in filenames:
+                    return os.path.join(dirpath, "memories_history.json")
+        except Exception:
+            pass
         return None
 
     def _detect_export_zips(self, directory):
@@ -1082,7 +1136,14 @@ class SnapchatDownloaderGUI:
         validate — the full (multi-GB) extraction happens when
         processing starts. Returns True if export ZIPs were found.
         """
-        zips = export_zip_utils.find_export_zips(directory)
+        read_errors = []
+        zips = export_zip_utils.find_export_zips(directory, errors=read_errors)
+        if read_errors:
+            self.memories_section_info.config(
+                text=f"⚠ {read_errors[0]} — on macOS, allow the app access to this "
+                     f"folder in System Settings → Privacy & Security → Files and Folders"
+            )
+            return True
         if not zips:
             return False
         size = export_zip_utils.format_size(export_zip_utils.total_zip_size(zips))
@@ -1804,11 +1865,12 @@ class SnapchatDownloaderGUI:
                             log_local("  ⚠ Cancelled during conversion")
                             return logs, False, False
                         
-                        # Convert all videos to H.264 by default
-                        log_local("  🔄 Converting to H.264...")
+                        # H.264 is remuxed losslessly; only HEVC/other codecs
+                        # (or opt-in iCloud fixes) are re-encoded (issue #14).
+                        log_local("  🔄 Checking video codec...")
 
                         # Check if any conversion tool is available
-                        if not HAS_PYAV and not find_vlc_executable() and not HAS_VLC:
+                        if not HAS_PYAV and not find_vlc_executable() and not HAS_VLC and not check_ffmpeg():
                             log_local("  ⚠ No conversion tools available - keeping original format")
                             log_local("  ℹ Install PyAV (pip install av) or VLC for automatic H.264 conversion")
                             # Still count as success - video was downloaded
@@ -1821,7 +1883,7 @@ class SnapchatDownloaderGUI:
                                     failed_dir_path=failed_conversions_dir
                                 )
                                 if success:
-                                    log_local("  ✓ Converted to H.264")
+                                    log_local("  ✓ Video ready (H.264 kept lossless when possible)")
                                     # Replace original with converted file
                                     try:
                                         os.remove(str(file_path))
@@ -2966,14 +3028,21 @@ class SnapchatDownloaderGUI:
             overlay_path = overlay_record["path"] if overlay_record else None
 
             if overlay_path and overlay_mode in ("merge", "both"):
+                merged_is_video = is_video
                 if is_video:
                     ok, result = merge_video_overlay(record["path"], overlay_path, out_file)
                 else:
                     ok, result = merge_images(record["path"], overlay_path, out_file)
+                    if ok and result != out_file:
+                        # animated overlay: photo became a looping .mp4
+                        out_file = result
+                        out_name = os.path.basename(result) if not group_folders \
+                            else f"{folder}/{os.path.basename(result)}"
+                        merged_is_video = True
 
                 if ok:
                     log_local(f"  ✓ Merged caption → {out_name}")
-                    _apply_file_metadata(out_file, is_video, local_dt, None, None,
+                    _apply_file_metadata(out_file, merged_is_video, local_dt, None, None,
                                          tz_off_str, log_local)
                 else:
                     log_local(f"  ⚠ Merge failed ({result}), copying original instead")
@@ -3060,14 +3129,20 @@ class SnapchatDownloaderGUI:
                 out_name = f"{date_str}_{idx}{ext}"
                 out_file = str(media_output_dir / out_name)
 
+                merged_is_video = is_video
                 if is_video:
                     ok, result = merge_video_overlay(file_path, overlay_path, out_file)
                 else:
                     ok, result = merge_images(file_path, overlay_path, out_file)
+                    if ok and result != out_file:
+                        # animated overlay: photo became a looping .mp4
+                        out_file = result
+                        out_name = os.path.basename(result)
+                        merged_is_video = True
 
                 if ok:
                     log_local(f"  ✓ Merged overlay → {out_name}")
-                    _apply_file_metadata(result, is_video, local_dt, latitude, longitude,
+                    _apply_file_metadata(result, merged_is_video, local_dt, latitude, longitude,
                                         tz_off_str, log_local)
                     primary_output = out_file
                 else:
@@ -3136,19 +3211,16 @@ def _apply_file_metadata(path, is_video, date_obj, lat, lon, tz_offset, log_fn):
     """Write EXIF / MP4 metadata and set file timestamps."""
     ext = os.path.splitext(path)[1].lower()
     if is_video:
-        # Local Snapchat exports come pre-encoded as H.264 already, but with
-        # a High profile and full-range/non-standard color tags that iCloud
-        # Photos' web uploader rejects ("file type not supported"). Unlike
-        # the direct-download path, files reaching this helper (local folder
-        # import, chat media) were never routed through H.264 conversion at
-        # all, so the profile/color fix never applied to them. Re-encode in
-        # place here too, before writing metadata.
-        if HAS_PYAV or find_vlc_executable() or HAS_VLC:
+        # Local Snapchat exports usually come as H.264 already. They are
+        # remuxed losslessly; only HEVC/other codecs, or High-profile /
+        # full-range H.264 when the user opted into iCloud compatibility
+        # (iCloud's web uploader rejects those), are re-encoded (issue #14).
+        if HAS_PYAV or find_vlc_executable() or HAS_VLC or check_ffmpeg():
             try:
                 failed_dir = str(Path(path).parent / "failed_conversions")
                 ok, result = convert_hevc_to_h264(path, output_path=path, failed_dir_path=failed_dir)
                 if ok:
-                    log_fn("    ✓ Converted to H.264 (iCloud-compatible)")
+                    log_fn("    ✓ Video ready (H.264 kept lossless when possible)")
                 else:
                     log_fn(f"    ⚠ Conversion failed: {result}")
             except Exception as exc:

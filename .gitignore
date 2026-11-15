@@ -217,3 +217,8 @@ test files/*
 chat_media_test/*
 # App-generated files
 gui_settings.json
+
+# Export fixtures for tests/test_pipeline_e2e.py. Both the real sample (local/)
+# and the look-alikes generated from it (synthetic/) come from personal
+# Snapchat data, so neither is ever committed.
+tests/fixtures/

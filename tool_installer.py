@@ -17,7 +17,10 @@ copy-the-command instructions, so a failed download is never a dead end.
 
 import hashlib
 import logging
+import gzip
 import os
+import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -98,11 +101,12 @@ _FFMPEG_SOURCES = {
         "kind": "zip",
     },
     "darwin": {
-        # evermeet.cx is the download host linked from ffmpeg.org for macOS.
-        "url": "https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip",
-        "url2": "https://evermeet.cx/ffmpeg/getrelease/ffprobe/zip",
+        # evermeet.cx now answers 410 Gone, so use the eugeneware/ffmpeg-static
+        # release assets (gzip'd single binaries, one pair per CPU arch).
+        "url": "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffmpeg-darwin-{arch}.gz",
+        "url2": "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffprobe-darwin-{arch}.gz",
         "sha256_url": None,
-        "kind": "zip",
+        "kind": "gz",
     },
     "linux": {
         "url": "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz",
@@ -182,9 +186,21 @@ def _verify_sha256(path, sha_url, log=None):
     return True
 
 
-def _extract_wanted(archive_path, kind, dest_dir):
-    """Pull ffmpeg/ffprobe out of a zip or tar archive into dest_dir (flat)."""
+def _mac_arch():
+    return "arm64" if platform.machine().lower() in ("arm64", "aarch64") else "x64"
+
+
+def _extract_wanted(archive_path, kind, dest_dir, name=None):
+    """Pull ffmpeg/ffprobe out of a zip or tar archive into dest_dir (flat).
+
+    kind "gz" is a single gzip'd binary that is written out as `name`.
+    """
     found = []
+    if kind == "gz":
+        target = os.path.join(dest_dir, name)
+        with gzip.open(archive_path) as src, open(target, "wb") as dst:
+            shutil.copyfileobj(src, dst)
+        return [name]
     if kind == "zip":
         with zipfile.ZipFile(archive_path) as z:
             for member in z.namelist():
@@ -228,13 +244,15 @@ def install_ffmpeg(log=None, progress=None):
     os.makedirs(staging, exist_ok=True)
     try:
         urls = [src["url"]] + ([src["url2"]] if src.get("url2") else [])
+        urls = [u.format(arch=_mac_arch()) for u in urls]
+        names = ["ffmpeg", "ffprobe"]
         got = set()
         for i, url in enumerate(urls):
             arc = os.path.join(tmp, f"dl{i}")
             _download(url, arc, log, progress)
             if not _verify_sha256(arc, src.get("sha256_url") if i == 0 else None, log):
                 return False, "Download failed checksum verification — nothing installed"
-            got.update(_extract_wanted(arc, src["kind"], staging))
+            got.update(_extract_wanted(arc, src["kind"], staging, names[i]))
 
         staged = os.listdir(staging)
         missing = [n for n in ("ffmpeg", "ffprobe")
@@ -265,23 +283,112 @@ def install_ffmpeg(log=None, progress=None):
 # --------------------------------------------------------------------------
 # vlc — delegate to the OS package manager
 # --------------------------------------------------------------------------
+_BREW_PATHS = ("/opt/homebrew/bin/brew", "/usr/local/bin/brew")
+_VLC_MAC_INDEX = "https://download.videolan.org/vlc/last/macosx/"
+
+
+def _find_brew():
+    """brew path, also probing the usual spots: apps launched from Finder
+    don't inherit the shell PATH, so which() alone misses Homebrew."""
+    found = shutil.which("brew")
+    if found:
+        return found
+    for p in _BREW_PATHS:
+        if os.path.isfile(p):
+            return p
+    return None
+
+
 def _vlc_pkg_command():
     if sys.platform == "win32" and shutil.which("winget"):
         return ["winget", "install", "--exact", "--id", "VideoLAN.VLC",
                 "--accept-package-agreements", "--accept-source-agreements"]
-    if sys.platform == "darwin" and shutil.which("brew"):
-        return ["brew", "install", "--cask", "vlc"]
-    if shutil.which("brew"):
-        return ["brew", "install", "--cask", "vlc"]
+    brew = _find_brew() if sys.platform != "win32" else None
+    if brew:
+        return [brew, "install", "--cask", "vlc"]
     return None
 
 
-def install_vlc(log=None):
-    """Run the platform package manager to install VLC, streaming output.
+def _vlc_dmg_url():
+    """Latest VLC dmg URL for this Mac, scraped from the VideoLAN index."""
+    arch = "arm64" if platform.machine().lower() in ("arm64", "aarch64") else "intel64"
+    try:
+        html = requests.get(_VLC_MAC_INDEX, timeout=30).text
+        for kind in (arch, "universal"):
+            m = re.search(r'href="(vlc-[\d.]+-%s\.dmg)"' % kind, html)
+            if m:
+                return _VLC_MAC_INDEX + m.group(1)
+    except Exception:
+        pass
+    return f"{_VLC_MAC_INDEX}vlc-3.0.24-{arch}.dmg"
+
+
+def _run(cmd, log):
+    proc = subprocess.run(cmd, capture_output=True, text=True,
+                          env=clean_subprocess_env())
+    if proc.returncode != 0:
+        _log(log, f"{cmd[0]} failed: {(proc.stderr or proc.stdout).strip()}")
+    return proc.returncode == 0
+
+
+def install_vlc_macos(log=None, progress=None):
+    """Download the official dmg and copy VLC.app into ~/Applications.
+
+    Needs no Homebrew and no admin rights; find_vlc_executable() already
+    looks in ~/Applications.
+    """
+    if requests is None:
+        return False, "The 'requests' library is not available"
+    tmp = tempfile.mkdtemp(prefix="vlc_dl_")
+    mount = os.path.join(tmp, "mnt")
+    os.makedirs(mount)
+    mounted = False
+    try:
+        url = _vlc_dmg_url()
+        dmg = os.path.join(tmp, "vlc.dmg")
+        _download(url, dmg, log, progress)
+        if not _verify_sha256(dmg, url + ".sha256", log):
+            return False, "Download failed checksum verification — nothing installed"
+        _log(log, "Mounting disk image...")
+        if not _run(["hdiutil", "attach", "-nobrowse", "-readonly",
+                     "-mountpoint", mount, dmg], log):
+            return False, "Could not open the VLC disk image"
+        mounted = True
+        src = os.path.join(mount, "VLC.app")
+        if not os.path.isdir(src):
+            return False, "VLC.app not found in the disk image"
+        dest_dir = os.path.expanduser("~/Applications")
+        os.makedirs(dest_dir, exist_ok=True)
+        dest = os.path.join(dest_dir, "VLC.app")
+        if os.path.isdir(dest):
+            shutil.rmtree(dest, ignore_errors=True)
+        _log(log, f"Copying VLC to {dest_dir}...")
+        if not _run(["ditto", src, dest], log):
+            return False, "Could not copy VLC.app"
+        _run(["xattr", "-dr", "com.apple.quarantine", dest], log)
+        return True, f"VLC installed to {dest}"
+    except Exception as exc:
+        logging.exception("install_vlc_macos failed")
+        return False, f"VLC download failed: {exc}"
+    finally:
+        if mounted:
+            subprocess.run(["hdiutil", "detach", "-force", mount],
+                           capture_output=True)
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def install_vlc(log=None, progress=None):
+    """Install VLC: direct dmg on macOS (Homebrew as fallback), else the
+    platform package manager, streaming output.
 
     Returns (ok, message). ok is False with message 'no-package-manager'
     when winget/brew is unavailable so the caller can open the web page.
     """
+    if sys.platform == "darwin":
+        ok, msg = install_vlc_macos(log, progress)
+        if ok or not _find_brew():
+            return ok, msg
+        _log(log, f"{msg} — trying Homebrew instead")
     cmd = _vlc_pkg_command()
     if not cmd:
         return False, "no-package-manager"

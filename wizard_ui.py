@@ -64,6 +64,17 @@ else:
     INSTALL_SHELL_HINT = "a terminal"
 
 
+def small_button(parent, text, command, bg):
+    """Compact coloured button. Tk on macOS ignores bg/fg on tk.Button (the
+    label renders white-on-white), so use a themed ttk button there."""
+    if sys.platform == "darwin":
+        return ttk.Button(parent, text=text, command=command,
+                          style="Secondary.TButton")
+    return tk.Button(parent, text=text, command=command, font=("Segoe UI", 8),
+                     cursor="hand2", relief=tk.FLAT, bg=bg, fg="#ffffff",
+                     activebackground=bg, activeforeground="#ffffff", padx=10)
+
+
 def install_command(tool):
     """One-line install command for 'ffmpeg' or 'VLC' on this platform."""
     return _INSTALL_CMDS.get(tool)
@@ -476,10 +487,7 @@ class TaskStep(WizardStep):
         entry.config(state="readonly")
         entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=3)
 
-        btn = tk.Button(cmd_row, text="Copy", font=("Segoe UI", 8), cursor="hand2",
-                        relief=tk.FLAT, bg=PRIMARY, fg="#ffffff",
-                        activebackground=PRIMARY, activeforeground="#ffffff",
-                        padx=10)
+        btn = small_button(cmd_row, "Copy", None, PRIMARY)
         def _copy(_e=None, c=cmd, b=btn):
             self.tools_frame.clipboard_clear()
             self.tools_frame.clipboard_append(c)
@@ -488,10 +496,8 @@ class TaskStep(WizardStep):
         btn.config(command=_copy)
         btn.pack(side=tk.LEFT, padx=(6, 0))
 
-        dl = tk.Button(cmd_row, text="Download for me", font=("Segoe UI", 8),
-                       cursor="hand2", relief=tk.FLAT, bg=SUCCESS, fg="#ffffff",
-                       activebackground=SUCCESS, activeforeground="#ffffff", padx=10)
-        dl.config(command=lambda n=name, u=url: self._download_tool(n, u))
+        dl = small_button(cmd_row, "Download for me",
+                          lambda n=name, u=url: self._download_tool(n, u), SUCCESS)
         dl.pack(side=tk.LEFT, padx=(6, 0))
 
     # --- managed install ------------------------------------------------
@@ -538,7 +544,9 @@ class TaskStep(WizardStep):
                         log=emit,
                         progress=lambda done, total: msgs.put(("pct", (done, total))))
                 else:
-                    ok, result = tool_installer.install_vlc(log=emit)
+                    ok, result = tool_installer.install_vlc(
+                        log=emit,
+                        progress=lambda done, total: msgs.put(("pct", (done, total))))
                     if not ok and result == "no-package-manager":
                         emit("No package manager found — opening the download page "
                              "in your browser instead.")
@@ -1004,10 +1012,31 @@ class OptionsStep(WizardStep):
             text="Sort into a folder per conversation / group chat (recommended)",
             variable=app.group_by_conversation, style="Card.TCheckbutton")
 
-        # all routes
+        # all routes — video quality policy (issue #14)
+        self.hevc_check = ttk.Checkbutton(
+            self.adv_frame,
+            text="Convert HEVC/H.265 videos to H.264 for wider player support (recommended)",
+            variable=app.transcode_hevc, style="Card.TCheckbutton")
+        self.icloud_check = ttk.Checkbutton(
+            self.adv_frame,
+            text="Make videos compatible with iCloud.com uploads",
+            variable=app.icloud_compatible_video, style="Card.TCheckbutton")
+        self.icloud_note = ttk.Label(
+            self.adv_frame,
+            text="Turn this on if you'll upload through the iCloud Photos website "
+                 "(icloud.com), which rejects many Snapchat videos with \"file type not "
+                 "supported\". It re-encodes those videos, which slightly lowers their "
+                 "quality. Leave it off to keep your videos exactly as Snapchat saved them. "
+                 "Uploading with the iCloud for Windows app, an iPhone or a Mac may work "
+                 "without it.",
+            style="Info.TLabel", wraplength=600, justify=tk.LEFT)
+
         self.gps_check = ttk.Checkbutton(
             self.adv_frame, text="Use GPS coordinates to determine local timezone (recommended)",
             variable=app.use_gps_tz, style="Card.TCheckbutton")
+
+        # Open by default so the video quality / iCloud choice is visible.
+        self._toggle_advanced()
 
         self._build_tools_row()
 
@@ -1019,8 +1048,8 @@ class OptionsStep(WizardStep):
         row = ttk.Frame(tools_card, style="Card.TFrame")
         row.pack(fill=tk.X)
         if ffmpeg_ok and vlc_ok:
-            ttk.Label(row, text="✓ ffmpeg and VLC detected — videos are converted to H.264 and "
-                                "captions can be merged automatically",
+            ttk.Label(row, text="✓ ffmpeg and VLC detected — videos are converted to H.264 when "
+                                "needed and captions can be merged automatically",
                       style="Info.TLabel", wraplength=640, justify=tk.LEFT).pack(side=tk.LEFT)
         else:
             missing = []
@@ -1046,9 +1075,7 @@ class OptionsStep(WizardStep):
                 ent.insert(0, cmd)
                 ent.config(state="readonly")
                 ent.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=3)
-                b = tk.Button(crow, text="Copy", font=("Segoe UI", 8), cursor="hand2",
-                              relief=tk.FLAT, bg=PRIMARY, fg="#ffffff",
-                              activebackground=PRIMARY, activeforeground="#ffffff", padx=10)
+                b = small_button(crow, "Copy", None, PRIMARY)
                 b.config(command=lambda c=cmd, bb=b: (
                     tools_card.clipboard_clear(), tools_card.clipboard_append(c),
                     bb.config(text="Copied ✓"),
@@ -1068,8 +1095,8 @@ class OptionsStep(WizardStep):
     def _layout_advanced(self):
         mode = self.app.mode.get()
         for widget in (self.retries_row, self.resume_check, self.reconvert_check,
-                       self.skip_local_check, self.stitch_check,
-                       self.group_conv_check, self.gps_check):
+                       self.skip_local_check, self.stitch_check, self.group_conv_check, self.gps_check,
+                       self.hevc_check, self.icloud_check, self.icloud_note):
             widget.pack_forget()
         if mode == "download":
             self.retries_row.pack(anchor=tk.W, pady=(0, 8))
@@ -1082,6 +1109,9 @@ class OptionsStep(WizardStep):
             if mode == "chatmedia":
                 self.group_conv_check.pack(anchor=tk.W, pady=(0, 4))
         self.gps_check.pack(anchor=tk.W, pady=(4, 0))
+        self.hevc_check.pack(anchor=tk.W, pady=(4, 0))
+        self.icloud_check.pack(anchor=tk.W, pady=(4, 0))
+        self.icloud_note.pack(anchor=tk.W, padx=(24, 0), pady=(2, 0))
 
     def _toggle_reconvert(self):
         if self.app.skip_existing.get() and self.app.mode.get() == "download":

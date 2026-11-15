@@ -178,3 +178,23 @@ def test_restore_mtime_falls_back_to_dos_time(tmp_path):
     info = zipfile.ZipInfo("memories/x-main.mp4", date_time=(2019, 6, 15, 2, 31, 2))
     export_zip_utils._restore_mtime(str(target), info)
     assert os.path.getmtime(target) == time.mktime(datetime(2019, 6, 15, 2, 31, 2).timetuple())
+
+
+def test_wrapped_zip_is_detected_and_extracted(tmp_path):
+    _make_zip(tmp_path / "mydata~1.zip", {
+        "mydata~1/json/memories_history.json": b'{"Saved Media": []}',
+        "mydata~1/memories/a-main.jpg": b"x",
+    })
+    zips = export_zip_utils.find_export_zips(str(tmp_path))
+    assert len(zips) == 1
+    dest = export_zip_utils.default_extract_root(str(tmp_path))
+    json_path = export_zip_utils.extract_memories_json(zips, dest)
+    assert json_path == os.path.join(os.path.abspath(dest), "json", "memories_history.json")
+    export_zip_utils.extract_export_zips(zips, dest)
+    assert os.path.isfile(os.path.join(dest, "memories", "a-main.jpg"))
+
+
+def test_find_export_zips_reports_unreadable_folder(tmp_path):
+    errors = []
+    assert export_zip_utils.find_export_zips(str(tmp_path / "nope"), errors=errors) == []
+    assert errors

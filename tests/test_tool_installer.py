@@ -178,3 +178,34 @@ def test_install_vlc_nonzero_exit(monkeypatch):
     ok, msg = ti.install_vlc()
     assert not ok
     assert "code 1" in msg
+
+
+def test_install_ffmpeg_darwin_gz(tmp_path, monkeypatch):
+    import gzip
+    monkeypatch.setattr(ti.sys, "platform", "darwin")
+    monkeypatch.setattr(ti, "app_data_dir", lambda: str(tmp_path))
+    seen = []
+
+    def fake_get(url, *a, **k):
+        seen.append(url)
+        return _FakeResponse(gzip.compress(b"bin:" + url.encode()))
+
+    monkeypatch.setattr(ti.requests, "get", fake_get)
+    ok, msg = ti.install_ffmpeg()
+    assert ok, msg
+    assert all("evermeet" not in u for u in seen)
+    assert (tmp_path / "bin" / "ffmpeg").read_bytes().startswith(b"bin:")
+    assert (tmp_path / "bin" / "ffprobe").exists()
+
+
+def test_find_brew_probes_homebrew_dirs(monkeypatch):
+    monkeypatch.setattr(ti.shutil, "which", lambda n: None)
+    monkeypatch.setattr(ti.os.path, "isfile", lambda p: p == "/opt/homebrew/bin/brew")
+    assert ti._find_brew() == "/opt/homebrew/bin/brew"
+
+
+def test_install_vlc_mac_falls_back_to_page_without_brew(monkeypatch):
+    monkeypatch.setattr(ti.sys, "platform", "darwin")
+    monkeypatch.setattr(ti, "install_vlc_macos", lambda log=None, progress=None: (False, "boom"))
+    monkeypatch.setattr(ti, "_find_brew", lambda: None)
+    assert ti.install_vlc() == (False, "boom")

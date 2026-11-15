@@ -11,6 +11,7 @@ from datetime import datetime
 
 from fs_utils import is_macos_metadata
 from subprocess_env import clean_subprocess_env
+import video_utils
 
 # Windows-specific subprocess flag to prevent command windows from popping up
 CREATE_NO_WINDOW = 0x08000000 if sys.platform == 'win32' else 0
@@ -119,10 +120,120 @@ def extract_original_from_zip(zip_path, output_path):
                 logging.debug(f"Could not clean up temp directory: {cleanup_error}")
 
 
+OVERLAY_FPS = 25
+_VIDEO_OVERLAY_EXTS = ('.mp4', '.mov', '.m4v', '.webm', '.mkv', '.avi')
+# Photos with an animated overlay become a looping video; keep it at least this long
+_MIN_ANIMATED_PHOTO_SECONDS = 3.0
+_MAX_OVERLAY_CYCLE_FRAMES = OVERLAY_FPS * 20
+
+
+def is_animated_overlay(overlay_path):
+    """True if the overlay is an animated image (GIF/WebP/APNG) or a video."""
+    if str(overlay_path).lower().endswith(_VIDEO_OVERLAY_EXTS):
+        return True
+    if not HAS_PIL:
+        return False
+    try:
+        with PILImage.open(overlay_path) as img:
+            return bool(getattr(img, 'is_animated', False)) and getattr(img, 'n_frames', 1) > 1
+    except Exception:
+        return False
+
+
+def _export_overlay_cycle(overlay_path, dest_dir, fps=OVERLAY_FPS):
+    """Render one loop of an animated image overlay to numbered PNGs at a constant fps.
+
+    Pillow yields fully composited frames (disposal handled) with per-frame
+    durations, so variable-delay GIF/WebP/APNG become a constant-rate sequence
+    ffmpeg can loop. Returns (ffmpeg_pattern, cycle_seconds).
+    """
+    with PILImage.open(overlay_path) as img:
+        durations = []
+        for i in range(img.n_frames):
+            img.seek(i)
+            durations.append(max(int(img.info.get('duration') or 100), 20) / 1000.0)
+        total = sum(durations)
+        n_out = min(max(int(round(total * fps)), 1), _MAX_OVERLAY_CYCLE_FRAMES)
+
+        idx, frame_end, cache_idx, cache = 0, durations[0], -1, None
+        for k in range(n_out):
+            t = k / fps
+            while t >= frame_end and idx < len(durations) - 1:
+                idx += 1
+                frame_end += durations[idx]
+            if idx != cache_idx:
+                img.seek(idx)
+                cache = img.convert('RGBA')
+                cache_idx = idx
+            cache.save(Path(dest_dir) / f"ov_{k:05d}.png", format='PNG')
+    return str(Path(dest_dir) / "ov_%05d.png"), n_out / fps
+
+
+def _run_ffmpeg(cmd, timeout=300):
+    proc = subprocess.run(
+        cmd, capture_output=True, text=True, timeout=timeout,
+        creationflags=CREATE_NO_WINDOW, env=clean_subprocess_env(),
+    )
+    return proc.returncode, proc.stderr
+
+
+def _merge_animated_overlay_on_image(main_img_path, overlay_path, output_path):
+    """Photo + animated overlay -> looping H.264 mp4 at output_path (.mp4)."""
+    if shutil.which('ffmpeg') is None:
+        return False, "ffmpeg not found"
+    work = Path(tempfile.mkdtemp(prefix="anim_overlay_"))
+    try:
+        main_raw = PILImage.open(main_img_path)
+        main = (PILImageOps.exif_transpose(main_raw) or main_raw).convert('RGB')
+        main_png = work / "main.png"
+        main.save(main_png, format='PNG')
+
+        if str(overlay_path).lower().endswith(_VIDEO_OVERLAY_EXTS):
+            cycle = 0.0
+            ov_args = ['-stream_loop', '-1', '-i', str(overlay_path)]
+            duration = _MIN_ANIMATED_PHOTO_SECONDS
+        else:
+            pattern, cycle = _export_overlay_cycle(overlay_path, work)
+            ov_args = ['-stream_loop', '-1', '-framerate', str(OVERLAY_FPS), '-i', pattern]
+            # whole number of loops so the clip loops seamlessly
+            duration = cycle * max(1, int(-(-_MIN_ANIMATED_PHOTO_SECONDS // cycle)))
+
+        cmd = ['ffmpeg', '-y',
+               '-loop', '1', '-framerate', str(OVERLAY_FPS), '-i', str(main_png),
+               *ov_args,
+               '-filter_complex',
+               '[1:v][0:v]scale2ref[ov][bg];[bg][ov]overlay=0:0:shortest=1,'
+               'scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p[outv]',
+               '-map', '[outv]', '-t', f'{duration:.3f}',
+               '-c:v', 'libx264', '-crf', '18', '-preset', 'veryfast',
+               *video_utils.mp4_output_args(output_path), str(output_path)]
+        rc, err = _run_ffmpeg(cmd)
+        if rc != 0:
+            logging.error(f"ffmpeg animated-overlay photo merge failed: {err[-500:]}")
+            return False, err
+        if not os.path.exists(output_path) or os.path.getsize(output_path) < 1000:
+            return False, "ffmpeg produced no usable output"
+        return True, str(output_path)
+    except Exception as e:
+        logging.error(f"Error merging animated overlay onto image: {e}", exc_info=True)
+        return False, str(e)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
 def merge_images(main_img_path, overlay_img_path, output_path):
+    """Composite overlay onto a photo.
+
+    Returns (True, actual_output_path). With an animated overlay the result is
+    a looping .mp4, so the returned path's extension may differ from output_path.
+    """
     if not HAS_PIL:
         logging.error("Pillow is not installed; cannot merge images")
         return False, "Pillow not installed"
+
+    if is_animated_overlay(overlay_img_path):
+        return _merge_animated_overlay_on_image(
+            main_img_path, overlay_img_path, str(Path(output_path).with_suffix('.mp4')))
 
     try:
         # Apply EXIF orientation before compositing so both images
@@ -163,9 +274,8 @@ def merge_video_overlay(main_video_path, overlay_image_path, output_path):
     Returns (True, output_path) on success or (False, error_message).
     """
     normalized_overlay = None
+    anim_dir = None
     try:
-        import shutil
-        import subprocess
         if shutil.which('ffmpeg') is None:
             logging.warning("ffmpeg not found; cannot merge video overlay")
             return False, "ffmpeg not found"
@@ -173,7 +283,29 @@ def merge_video_overlay(main_video_path, overlay_image_path, output_path):
         # Normalize overlay image to proper PNG format using Pillow
         # This handles WebP, JPEG, and other formats that may have wrong extensions
         # or cause issues with ffmpeg's -loop flag
-        if HAS_PIL:
+        # input args that feed the overlay into ffmpeg; animated overlays loop
+        # as a frame sequence / video instead of being flattened to one frame
+        overlay_input_args = None
+        if is_animated_overlay(overlay_image_path):
+            if str(overlay_image_path).lower().endswith(_VIDEO_OVERLAY_EXTS):
+                overlay_to_use = str(overlay_image_path)
+                overlay_input_args = ['-stream_loop', '-1', '-i', overlay_to_use]
+            else:
+                try:
+                    anim_dir = Path(tempfile.mkdtemp(prefix="anim_overlay_"))
+                    pattern, _cycle = _export_overlay_cycle(overlay_image_path, anim_dir)
+                    overlay_to_use = pattern
+                    overlay_input_args = ['-stream_loop', '-1', '-framerate',
+                                          str(OVERLAY_FPS), '-i', pattern]
+                except Exception as anim_error:
+                    logging.warning(f"Could not expand animated overlay, using first frame: {anim_error}")
+                    if anim_dir:
+                        shutil.rmtree(anim_dir, ignore_errors=True)
+                        anim_dir = None
+
+        if overlay_input_args is not None:
+            pass
+        elif HAS_PIL:
             try:
                 logging.debug(f"Normalizing overlay image format: {overlay_image_path}")
                 img = PILImage.open(overlay_image_path)
@@ -217,8 +349,7 @@ def merge_video_overlay(main_video_path, overlay_image_path, output_path):
         # Using -loop 1 on the image input to loop it, and shortest=1 to end with video.
         cmd = [
             'ffmpeg', '-y',
-            '-loop', '1',  # Loop the image input indefinitely
-            '-i', overlay_to_use,  # Use normalized overlay
+            *(overlay_input_args or ['-loop', '1', '-i', overlay_to_use]),
             '-i', str(main_video_path),
             '-filter_complex', 
             '[0:v][1:v]scale2ref[overlay_scaled][video];[video][overlay_scaled]overlay=0:0:shortest=1[outv]',
@@ -226,6 +357,7 @@ def merge_video_overlay(main_video_path, overlay_image_path, output_path):
             '-map', '1:a?',  # Copy audio from main video if it exists
             '-c:a', 'copy',
             '-c:v', 'libx264', '-crf', '18', '-preset', 'veryfast',
+            *video_utils.mp4_output_args(output_path),
             str(output_path)
         ]
 
@@ -320,6 +452,8 @@ def merge_video_overlay(main_video_path, overlay_image_path, output_path):
         logging.error(f"Error merging video overlay: {e}", exc_info=True)
         return False, str(e)
     finally:
+        if anim_dir:
+            shutil.rmtree(anim_dir, ignore_errors=True)
         # Clean up normalized overlay file if it was created
         if normalized_overlay and os.path.exists(normalized_overlay):
             try:
@@ -345,6 +479,44 @@ def probe_duration(path):
         return None
 
 
+_CONCAT_KEYS = ('video_codec', 'profile', 'pix_fmt', 'width', 'height',
+                'audio_codec', 'sample_rate', 'channels')
+
+
+def _concat_stream_copy(input_paths, output_path):
+    """Join segments with the concat demuxer (-c copy) when params match."""
+    infos = [video_utils.probe_video_codecs(p) for p in input_paths]
+    first = tuple(infos[0].get(k) for k in _CONCAT_KEYS)
+    if not first[0]:
+        return False, "could not probe segments"
+    if any(tuple(i.get(k) for k in _CONCAT_KEYS) != first for i in infos[1:]):
+        return False, "segment codec parameters differ"
+
+    list_fd, list_path = tempfile.mkstemp(suffix='.txt', prefix='concat_')
+    try:
+        with os.fdopen(list_fd, 'w', encoding='utf-8') as fh:
+            for p in input_paths:
+                safe = os.path.abspath(str(p)).replace('\\', '/').replace("'", "'\\''")
+                fh.write(f"file '{safe}'\n")
+        cmd = ['ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', list_path,
+               '-map', '0:v:0', '-map', '0:a?', '-c', 'copy',
+               *video_utils.mp4_output_args(output_path), str(output_path)]
+        rc, err = _run_ffmpeg(cmd, timeout=max(300, 60 * len(input_paths)))
+        if rc != 0:
+            lines = (err or '').strip().splitlines()
+            return False, lines[-1] if lines else 'ffmpeg failed'
+        if not os.path.exists(output_path) or os.path.getsize(output_path) < 1000:
+            return False, "output too small"
+        return True, str(output_path)
+    except Exception as e:
+        return False, str(e)
+    finally:
+        try:
+            os.remove(list_path)
+        except OSError:
+            pass
+
+
 def concat_video_segments(input_paths, output_path):
     """Concatenate multiple video files into one using ffmpeg.
 
@@ -352,15 +524,21 @@ def concat_video_segments(input_paths, output_path):
     as a sequence of contiguous segments (issues #47, #53). After per-segment
     overlay merging, this joins the segments back into the original recording.
 
-    Re-encodes using the filter_complex concat filter so it tolerates segments
-    with mismatched codec params or one segment having audio while another
-    doesn't. Returns (True, output_path) on success, (False, error_message)
-    otherwise.
+    When every segment shares the same codec parameters the concat demuxer
+    joins them with stream copy - no re-encode (issue #14). Otherwise it
+    falls back to the filter_complex concat filter, which tolerates mismatched
+    params or a segment missing audio but has to re-encode.
+    Returns (True, output_path) on success, (False, error_message) otherwise.
     """
     if shutil.which('ffmpeg') is None or shutil.which('ffprobe') is None:
         return False, "ffmpeg/ffprobe not found"
     if len(input_paths) < 2:
         return False, "need at least two segments to concat"
+
+    ok, result = _concat_stream_copy(input_paths, output_path)
+    if ok:
+        return ok, result
+    logging.info(f"Lossless concat not possible ({result}); re-encoding segments")
 
     try:
         segments_have_audio = []
@@ -392,6 +570,7 @@ def concat_video_segments(input_paths, output_path):
                 '-map', '[outv]', '-map', '[outa]',
                 '-c:v', 'libx264', '-crf', '18', '-preset', 'veryfast',
                 '-c:a', 'aac', '-b:a', '192k',
+                *video_utils.mp4_output_args(output_path),
                 str(output_path),
             ])
         else:
@@ -401,6 +580,7 @@ def concat_video_segments(input_paths, output_path):
                 '-filter_complex', filter_complex,
                 '-map', '[outv]',
                 '-c:v', 'libx264', '-crf', '18', '-preset', 'veryfast',
+                *video_utils.mp4_output_args(output_path),
                 str(output_path),
             ])
 
@@ -533,6 +713,8 @@ def process_zip_overlay(zip_path, output_dir, date_obj=None):
             else:
                 success, result = merge_images(str(main_path), str(overlay_path), str(output_path))
                 if success:
+                    # animated overlay turns the photo into an .mp4
+                    output_path = Path(result)
                     try:
                         if date_obj:
                             ts = date_obj
