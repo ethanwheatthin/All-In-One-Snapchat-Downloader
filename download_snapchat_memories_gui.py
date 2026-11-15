@@ -2714,6 +2714,7 @@ class SnapchatDownloaderGUI:
                         f"[{gid}/{len(runs)}] Joining "
                         f"{len(segment_paths)} segments → {joined_path.name}"
                     )
+                    self.log("  from: " + ", ".join(os.path.basename(p) for p in segment_paths))
                     ok, result = zip_utils.concat_video_segments(segment_paths, str(joined_path))
                     if ok:
                         # Re-apply metadata to the joined file using the first
