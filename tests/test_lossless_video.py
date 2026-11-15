@@ -201,3 +201,21 @@ def test_concat_mismatched_segments_falls_back(tmp_path):
     ok, res = zip_utils.concat_video_segments([str(a), str(b)], str(out))
     assert ok, res
     assert _moov_before_mdat(out)
+
+
+@needs_ffmpeg
+def test_concat_aligns_mismatched_timescales(tmp_path):
+    # Seen on a real export: one segment re-encoded for an overlay came out
+    # with a 1/30000 video timescale, the next with 1/15360. The concat
+    # demuxer copied the timestamps unscaled and the joined video ran ~2x
+    # longer than its audio. The join must still be lossless and the length
+    # must match the parts.
+    a = _make_video(tmp_path / 'a.mp4', color='red', seconds=2)
+    b = _make_video(tmp_path / 'b.mp4', color='blue', seconds=2,
+                    extra=('-video_track_timescale', '30000'))
+    assert zip_utils._video_timescale(a) != zip_utils._video_timescale(b)
+    out = tmp_path / 'joined.mp4'
+    ok, res = zip_utils._concat_stream_copy([str(a), str(b)], str(out))
+    assert ok, res
+    expected = zip_utils.probe_duration(a) + zip_utils.probe_duration(b)
+    assert abs(zip_utils.probe_duration(out) - expected) < 0.5

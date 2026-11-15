@@ -463,12 +463,55 @@ def merge_video_overlay(main_video_path, overlay_image_path, output_path):
                 logging.debug(f"Could not remove normalized overlay: {cleanup_error}")
 
 
+def probe_duration(path):
+    """Container duration in seconds via ffprobe, or None if unknown."""
+    if shutil.which('ffprobe') is None:
+        return None
+    try:
+        probe = subprocess.run(
+            ['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+             '-of', 'default=nw=1:nk=1', str(path)],
+            capture_output=True, text=True, timeout=15,
+            creationflags=CREATE_NO_WINDOW, env=clean_subprocess_env(),
+        )
+        return float(probe.stdout.strip())
+    except Exception:
+        return None
+
+
 _CONCAT_KEYS = ('video_codec', 'profile', 'pix_fmt', 'width', 'height',
                 'audio_codec', 'sample_rate', 'channels')
 
 
+def _video_timescale(path):
+    """Video track timescale (time_base denominator), or None if unknown."""
+    try:
+        probe = subprocess.run(
+            ['ffprobe', '-v', 'error', '-select_streams', 'v:0',
+             '-show_entries', 'stream=time_base', '-of', 'default=nw=1:nk=1', str(path)],
+            capture_output=True, text=True, timeout=15,
+            creationflags=CREATE_NO_WINDOW, env=clean_subprocess_env(),
+        )
+        return int(probe.stdout.strip().split('/')[1])
+    except Exception:
+        return None
+
+
+# Joined length may differ from the sum of its segments by container padding
+# and audio priming, but never by more than this.
+_CONCAT_DURATION_SLACK = 1.0
+
+
 def _concat_stream_copy(input_paths, output_path):
-    """Join segments with the concat demuxer (-c copy) when params match."""
+    """Join segments with the concat demuxer (-c copy) when params match.
+
+    The concat demuxer keeps the first segment's video timescale and does not
+    rescale the others. Segments re-encoded separately (e.g. one had an
+    overlay burned in) can carry different timescales (1/15360 vs 1/30000),
+    which stretched the joined video to ~2x with the audio out of sync. Such
+    segments are remuxed to a common timescale first, and the result's length
+    is checked against the segments' so a bad join falls back to re-encoding.
+    """
     infos = [video_utils.probe_video_codecs(p) for p in input_paths]
     first = tuple(infos[0].get(k) for k in _CONCAT_KEYS)
     if not first[0]:
@@ -476,11 +519,32 @@ def _concat_stream_copy(input_paths, output_path):
     if any(tuple(i.get(k) for k in _CONCAT_KEYS) != first for i in infos[1:]):
         return False, "segment codec parameters differ"
 
-    list_fd, list_path = tempfile.mkstemp(suffix='.txt', prefix='concat_')
+    durations = [probe_duration(p) for p in input_paths]
+    if any(d is None for d in durations):
+        return False, "could not probe segment durations"
+
+    temp_dir = tempfile.mkdtemp(prefix='concat_')
     try:
-        with os.fdopen(list_fd, 'w', encoding='utf-8') as fh:
-            for p in input_paths:
-                safe = os.path.abspath(str(p)).replace('\\', '/').replace("'", "'\\''")
+        timescales = [_video_timescale(p) for p in input_paths]
+        if None in timescales:
+            return False, "could not probe segment timescales"
+        target_ts = timescales[0]
+        sources = []
+        for i, (p, ts) in enumerate(zip(input_paths, timescales)):
+            if ts == target_ts:
+                sources.append(str(p))
+                continue
+            fixed = os.path.join(temp_dir, f"seg{i}.mp4")
+            rc, err = _run_ffmpeg(['ffmpeg', '-y', '-i', str(p), '-map', '0', '-c', 'copy',
+                                   '-video_track_timescale', str(target_ts), fixed])
+            if rc != 0:
+                return False, "could not align segment timescales"
+            sources.append(fixed)
+
+        list_path = os.path.join(temp_dir, 'list.txt')
+        with open(list_path, 'w', encoding='utf-8') as fh:
+            for p in sources:
+                safe = os.path.abspath(p).replace('\\', '/').replace("'", "'\\''")
                 fh.write(f"file '{safe}'\n")
         cmd = ['ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', list_path,
                '-map', '0:v:0', '-map', '0:a?', '-c', 'copy',
@@ -491,14 +555,19 @@ def _concat_stream_copy(input_paths, output_path):
             return False, lines[-1] if lines else 'ffmpeg failed'
         if not os.path.exists(output_path) or os.path.getsize(output_path) < 1000:
             return False, "output too small"
+        joined = probe_duration(output_path)
+        expected = sum(durations)
+        if joined is None or abs(joined - expected) > _CONCAT_DURATION_SLACK:
+            try:
+                os.remove(output_path)
+            except OSError:
+                pass
+            return False, f"joined length {joined}s does not match segments' {expected:.1f}s"
         return True, str(output_path)
     except Exception as e:
         return False, str(e)
     finally:
-        try:
-            os.remove(list_path)
-        except OSError:
-            pass
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 def concat_video_segments(input_paths, output_path):
