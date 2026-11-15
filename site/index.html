@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>All-In-One Snapchat Downloader</title>
+<meta name="description" content="A free desktop app for Windows, macOS and Linux that turns your Snapchat data export into organized photos and videos with the right dates, locations and captions. Everything runs on your computer.">
+<link rel="canonical" href="https://snapchat-downloader.example/">
+<meta name="theme-color" content="#1F5E4B">
+<meta property="og:type" content="website">
+<meta property="og:title" content="All-In-One Snapchat Downloader">
+<meta property="og:description" content="Save your Snapchat memories and chat media with the right dates, locations and captions. Free, open source, runs on your computer.">
+<meta property="og:url" content="https://snapchat-downloader.example/">
+<meta property="og:image" content="https://snapchat-downloader.example/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preload" href="fonts/source-sans-3-400.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="css/site.css">
+<script defer src="js/download.js"></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="site-header">
+  <div class="wrap">
+    <a class="wordmark" href="#top">All-In-One Snapchat Downloader</a>
+    <nav aria-label="Main">
+      <a href="#download">Download</a>
+      <a href="#features">Features</a>
+      <a href="#guide">Guide</a>
+      <a href="#faq">FAQ</a>
+      <a href="#support">Support</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <section class="hero" id="top">
+    <div class="wrap">
+      <h1>Save your Snapchat memories in three steps.</h1>
+      <p class="lead">A free app for Windows, macOS and Linux. It works on the data export Snapchat gives you, puts the right date and place on every photo and video, and never sends anything off your computer.</p>
+
+      <ol class="path">
+        <li>
+          <span class="when">Day 1</span>
+          <h3>Request your data</h3>
+          <p>In Snapchat, go to Settings, then My Data. Snapchat takes 24 to 48 hours to prepare it. <a href="#get-data">Exactly what to tick</a>.</p>
+        </li>
+        <li>
+          <span class="when">When the email arrives</span>
+          <h3>Save every ZIP in one folder</h3>
+          <p>Big exports come in several <code>mydata~…zip</code> files. Put them all in one folder. Do not unzip anything.</p>
+        </li>
+        <li>
+          <span class="when">Now</span>
+          <h3>Run the app</h3>
+          <p>Pick the folder, choose where to save, press go.</p>
+          <a class="btn" id="download-primary" href="https://github.com/ethanwheatthin/All-In-One-Snapchat-Downloader/releases/latest/download/AllInOneSnapchatDownloader.exe">Download for Windows</a>
+          <p class="meta" id="download-note">Free. About 100 MB. <span id="version" hidden></span> <a href="#download">Other systems</a></p>
+        </li>
+      </ol>
+
+      <div class="note" id="windows-note">
+        <p><strong>Windows shows a blue "Windows protected your PC" screen?</strong> That happens with small free apps that are not code-signed. Choose <em>More info</em>, then <em>Run anyway</em>. If you would rather not run a downloaded file, you can <a href="https://github.com/ethanwheatthin/All-In-One-Snapchat-Downloader#%EF%B8%8F-building-from-source">build it from the source code</a>, which is public.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="download">
+    <div class="wrap">
+      <h2>Downloads</h2>
+      <p class="lead">The app is a desktop program. It does not run on phones or tablets. Run it on a computer, then copy the finished folder to your phone if you want the photos there.</p>
+      <ul class="dl-list" id="all-downloads">
+        <li data-os="windows">
+          <span class="name">Windows</span>
+          <span class="sub">Windows 10 or 11. <span class="file">AllInOneSnapchatDownloader.exe</span></span>
+          <a class="btn btn-quiet" href="https://github.com/ethanwheatthin/All-In-One-Snapchat-Downloader/releases/latest/download/AllInOneSnapchatDownloader.exe">Download</a>
+        </li>
+        <li data-os="mac">
+          <span class="name">macOS, Apple Silicon <span class="tag">Alpha</span></span>
+          <span class="sub">Macs with an M1, M2, M3 or M4 chip. <span class="file">AllInOneSnapchatDownloader-macos-arm64.zip</span></span>
+          <a class="btn btn-quiet" href="https://github.com/ethanwheatthin/All-In-One-Snapchat-Downloader/releases/latest/download/AllInOneSnapchatDownloader-macos-arm64.zip">Download</a>
+        </li>
+        <li data-os="mac">
+          <span class="name">macOS, Intel <span class="tag">Alpha</span></span>
+          <span class="sub">Older Macs with an Intel chip. <span class="file">AllInOneSnapchatDownloader-macos-intel.zip</span></span>
+          <a class="btn btn-quiet" href="https://github.com/ethanwheatthin/All-In-One-Snapchat-Downloader/releases/latest/download/AllInOneSnapchatDownloader-macos-intel.zip">Download</a>
+        </li>
+        <li data-os="linux">
+          <span class="name">Linux <span class="tag">Alpha</span></span>
+          <span class="sub">64-bit. <span class="file">AllInOneSnapchatDownloader-linux.tar.gz</span></span>
+          <a class="btn btn-quiet" href="https://github.com/ethanwheatthin/All-In-One-Snapchat-Downloader/releases/latest/download/AllInOneSnapchatDownloader-linux.tar.gz">Download</a>
+        </li>
+      </ul>
+      <div class="prose">
+        <p><strong>Not sure which Mac you have?</strong> Open the Apple menu, choose About This Mac, and look at the chip. Each build only runs on its own kind of chip.</p>
+        <p><strong>macOS asks about an unverified app?</strong> Right-click the app, choose Open, then Open again. You only need to do this once.</p>
+        <p><strong>Linux:</strong> install Tkinter first if it is missing (<code>sudo apt install python3-tk</code> on Debian and Ubuntu). The Mac and Linux builds are early and need testers, so please <a href="https://github.com/ethanwheatthin/All-In-One-Snapchat-Downloader/issues">tell us what you find</a>.</p>
+        <p>Prefer a video? <a href="https://www.youtube.com/watch?v=O32IF1Qxg2E">Watch the tutorial on YouTube</a>. All files are also listed on the <a href="https://github.com/ethanwheatthin/All-In-One-Snapchat-Downloader/releases">releases page</a>.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="features">
+    <div class="wrap">
+      <h2>What it does</h2>
+      <p class="lead">Snapchat's export gives you files with scrambled names and no useful dates. This app turns them back into a library you can browse.</p>
+      <ul class="features">
+        <li><b>Right dates and places</b><span>Original dates and GPS locations are written into each photo and video, and file dates match, so everything sorts correctly in your photo app.</span></li>
+        <li><b>Captions put back</b><span>Text and stickers are merged back onto the photo or video they belong to.</span></li>
+        <li><b>Organized folders</b><span>Memories land in Year, Month and Day folders, named by the moment they were taken.</span></li>
+        <li><b>Works on the ZIPs as they are</b><span>Point it at the folder of ZIP files. It unpacks them for you, and picks up where it left off if you stop.</span></li>
+        <li><b>Videos that play everywhere</b><span>Videos are converted so they play on Windows and upload to iCloud Photos.</span></li>
+        <li><b>Local times</b><span>Uses the place a photo was taken to work out the local time, so a photo from a trip is not an hour off.</span></li>
+        <li><b>Chat media too</b><span>Photos and videos from your chats get correct dates, sender info and merged captions. <a href="#chat-media">More below</a>.</span></li>
+        <li><b>Nothing leaves your computer</b><span>No account, no upload, no tracking. The code is open and public.</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="section" id="guide">
+    <div class="wrap">
+      <h2>How to use it</h2>
+
+      <div id="get-data" class="prose">
+        <h3>First, get your data from Snapchat</h3>
+        <ol>
+          <li>Open Snapchat on your phone. Tap your profile icon, then Settings.</li>
+          <li>Scroll to Privacy Controls and tap My Data.</li>
+          <li>Tick the data you want. For memories, choose <b>Memories</b> and <b>Export JSON Files</b>.</li>
+          <li>Pick a date range and tap Submit Request.</li>
+          <li>Wait 24 to 48 hours for the email, then download <b>every</b> ZIP into one folder.</li>
+        </ol>
+        <p class="meta">Links in the email expire after about 7 days, so process your export soon after it arrives. If Snapchat says "Security Restriction, try again after 72 hours", that is a limit on their side. Wait and ask again.</p>
+      </div>
+      <div class="shot narrow"><img src="images/export-options.webp" width="1100" height="874" loading="lazy" alt="Snapchat's My Data screen with the memories and JSON export options ticked"></div>
+      <div class="shot narrow"><img src="images/zip-folder.webp" width="852" height="512" loading="lazy" alt="A single folder holding all the mydata ZIP files from Snapchat"></div>
+
+      <h3>Then, four steps in the app</h3>
+
+      <div class="guide-step">
+        <div class="text">
+          <span class="stepno">Step 1</span>
+          <h3>Task</h3>
+          <p>Choose <b>Memories</b> or <b>Chat media</b>. The app also checks for FFmpeg and VLC, two free helpers for video. If either is missing, press <b>Download for me</b>.</p>
+        </div>
+        <div class="shot"><img src="images/wizard-1-task.webp" width="1000" height="800" loading="lazy" alt="The Task step of the app, with Memories and Chat media options"></div>
+      </div>
+
+      <div class="guide-step">
+        <div class="text">
+          <span class="stepno">Step 2</span>
+          <h3>Source</h3>
+          <p>Select the folder of ZIP files. The app finds your memories list inside and tells you how many memories it found and which years they cover.</p>
+          <ul>
+            <li><b>Process your export files</b> is the right choice almost every time. It works whether or not your export has download links.</li>
+            <li><b>Download from Snapchat</b> is only for exports that include links and no media.</li>
+          </ul>
+        </div>
+        <div class="shot"><img src="images/wizard-2-source.webp" width="1000" height="800" loading="lazy" alt="The Source step with a folder of export ZIP files selected"></div>
+      </div>
+
+      <div class="guide-step">
+        <div class="text">
+          <span class="stepno">Step 3</span>
+          <h3>Options</h3>
+          <p>Choose where to save your files, then check the two settings that matter.</p>
+          <ul>
+            <li><b>Skip existing files</b> lets you stop and restart without redoing work.</li>
+            <li><b>Use GPS to find the local timezone</b> is on by default and recommended.</li>
+          </ul>
+        </div>
+        <div class="shot"><img src="images/wizard-3-options.webp" width="1000" height="800" loading="lazy" alt="The Options step with output folder, resume and timezone settings"></div>
+      </div>
+
+      <div class="guide-step">
+        <div class="text">
+          <span class="stepno">Step 4</span>
+          <h3>Run</h3>
+          <p>Review the plan and press start. ZIPs are unpacked first, then every memory is matched, captioned and dated. Stop at any time and run again later to continue. <b>Open save folder</b> shows your results.</p>
+        </div>
+        <div class="shot"><img src="images/wizard-4-run.webp" width="1000" height="800" loading="lazy" alt="The Run step showing the plan and the start button"></div>
+      </div>
+
+      <div class="prose">
+        <h3>What you get</h3>
+        <p>Files are sorted into folders by date and named by when they were taken:</p>
+      </div>
+      <pre class="tree">2024/
+  01 - January/
+    2024-01-15/
+      20240115_143022.jpg</pre>
+    </div>
+  </section>
+
+  <section class="section" id="chat-media">
+    <div class="wrap">
+      <h2>Chat media</h2>
+      <div class="prose">
+        <p>Snapchat's export can include every photo and video saved in your chats. These come with scrambled names, no dates, and captions saved as separate see-through images. Choose <b>Chat media</b> on the first step and the app puts them back together.</p>
+        <p>When you request your data, turn on <b>Export JSON Files</b>, <b>Chat History</b>, <b>Export Chat Media</b> and (recommended) <b>Export Shared Stories</b>.</p>
+      </div>
+      <div class="shot narrow"><img src="images/chat-toggles.webp" width="960" height="748" loading="lazy" alt="The Snapchat export toggles to turn on for chat media"></div>
+      <ul class="features">
+        <li><b>Exact times</b><span>Files are matched to your chat history, usually for over 98% of them.</span></li>
+        <li><b>Who sent what</b><span>The log shows the sender and conversation for each file.</span></li>
+        <li><b>One folder per conversation</b><span>Named after the group or the other person. You can turn this off.</span></li>
+        <li><b>No wrong captions</b><span>If a caption cannot be paired with confidence, it is saved separately instead of landing on the wrong photo.</span></li>
+      </ul>
+      <p class="meta">Chat media has no location data, so only dates are fixed. A few files in some exports are stored in a format nothing can read. They are listed in the log and skipped.</p>
+    </div>
+  </section>
+
+  <section class="section" id="helpers">
+    <div class="wrap">
+      <h2>FFmpeg and VLC</h2>
+      <p class="lead">Two free tools the app uses for videos and captions. The app can install them for you with <b>Download for me</b>. Prefer to do it yourself? Copy a command.</p>
+      <div class="cmds">
+        <div class="cmd headrow"><span class="head">System</span><span class="head">FFmpeg</span><span class="head">VLC</span></div>
+        <div class="cmd"><span class="os">Windows</span>
+          <span class="c" data-tool="FFmpeg"><code>winget install --exact --id Gyan.FFmpeg</code><button class="btn btn-quiet" type="button" data-copy="winget install --exact --id Gyan.FFmpeg">Copy</button></span>
+          <span class="c" data-tool="VLC"><code>winget install --exact --id VideoLAN.VLC</code><button class="btn btn-quiet" type="button" data-copy="winget install --exact --id VideoLAN.VLC">Copy</button></span></div>
+        <div class="cmd"><span class="os">macOS</span>
+          <span class="c" data-tool="FFmpeg"><code>brew install ffmpeg</code><button class="btn btn-quiet" type="button" data-copy="brew install ffmpeg">Copy</button></span>
+          <span class="c" data-tool="VLC"><code>brew install --cask vlc</code><button class="btn btn-quiet" type="button" data-copy="brew install --cask vlc">Copy</button></span></div>
+        <div class="cmd"><span class="os">Linux</span>
+          <span class="c" data-tool="FFmpeg"><code>sudo apt install -y ffmpeg</code><button class="btn btn-quiet" type="button" data-copy="sudo apt install -y ffmpeg">Copy</button></span>
+          <span class="c" data-tool="VLC"><code>sudo apt install -y vlc</code><button class="btn btn-quiet" type="button" data-copy="sudo apt install -y vlc">Copy</button></span></div>
+      </div>
+      <p class="meta">After installing, press <b>Re-check</b> in the app. Without them the app still converts videos and writes dates and locations, but installing both is recommended.</p>
+    </div>
+  </section>
+
+  <section class="section" id="faq">
+    <div class="wrap">
+      <h2>Questions people ask</h2>
+      <div class="faq">
+        <details><summary>Is my data uploaded anywhere?</summary><div><p>No. Downloading, merging captions and writing dates all happen on your computer. Nothing is sent to any server.</p></div></details>
+        <details><summary>Does it work on my phone or tablet?</summary><div><p>No. It is a desktop app for Windows, macOS and Linux. Run it on a computer, then copy the output folder to your phone.</p></div></details>
+        <details><summary>Windows or Chrome says the file is dangerous. Is it safe?</summary><div><p>This warning is common for free, open-source apps that are not code-signed. Choose More info, then Run anyway. If you prefer, build it yourself from the public source code.</p></div></details>
+        <details><summary>It says "no download URL found" or "no memories found".</summary><div><p>Your export probably has no download links, or they expired after about 7 days. Check that you selected the folder holding your <code>mydata~</code> ZIP files. Then keep <b>Process your export files</b> selected on the Source step. That mode does not need links.</p></div></details>
+        <details><summary>Snapchat says "Security Restriction, try again after 72 hours".</summary><div><p>That is a limit Snapchat puts on data requests. The app cannot change it. Wait out the cooldown and request again.</p></div></details>
+        <details><summary>Do I have to tick every box when I request my data?</summary><div><p>No. For memories you only need <b>Memories</b> and <b>Export JSON Files</b>. Chat media and shared stories are optional extras. Download links last about 7 days, so do not let an export sit for too long.</p></div></details>
+        <details><summary>Can I remove VLC or FFmpeg afterwards?</summary><div><p>Yes. They are only used while processing. FFmpeg installed through <b>Download for me</b> lives in the app's own folder, so there is nothing else to uninstall.</p></div></details>
+        <details><summary>Some older or "My Eyes Only" memories will not open.</summary><div><p>That is usually down to how Snapchat stored them (older formats or encrypted media). The app cannot decode them.</p></div></details>
+        <details><summary>It stops partway through a very large export.</summary><div><p>Turn on <b>Skip existing files</b> and run it again. It continues where it left off. Very large exports can take several runs.</p></div></details>
+        <details><summary>Will it spot duplicates if I move files into a folder that has some already?</summary><div><p>No. Duplicate checks only cover the app's own output folder. If you merge into an existing library, compare names and dates yourself.</p></div></details>
+        <details><summary>A few photos have a time that is a minute or two off.</summary><div><p>When several memories were taken within a second or two of each other, a neighbour's time can be used. Dates are reliable. Exact times for closely timed files can be slightly off.</p></div></details>
+        <details><summary>Do I need 7-Zip to unzip the export first?</summary><div><p>No. Point the app at the folder of ZIP files and it unpacks them itself.</p></div></details>
+      </div>
+      <p>Still stuck? <a href="https://github.com/ethanwheatthin/All-In-One-Snapchat-Downloader/issues">Open an issue on GitHub</a> and describe what you see.</p>
+    </div>
+  </section>
+
+  <section class="section" id="support">
+    <div class="wrap">
+      <h2>Support the project</h2>
+      <p class="lead">The app is free and stays free. If it saved your memories, a tip helps keep it maintained.</p>
+      <div class="pay">
+        <figure>
+          <a href="https://venmo.com/u/ethan-c"><img src="images/venmo-qr.png" width="132" height="132" loading="lazy" alt="Venmo QR code for @ethan-c"></a>
+          <figcaption>Venmo: <a href="https://venmo.com/u/ethan-c">@ethan-c</a></figcaption>
+        </figure>
+        <figure>
+          <a href="https://cash.app/$ECollins19"><img src="images/cashapp-qr.png" width="132" height="132" loading="lazy" alt="Cash App QR code for $ECollins19"></a>
+          <figcaption>Cash App: <a href="https://cash.app/$ECollins19">$ECollins19</a></figcaption>
+        </figure>
+      </div>
+      <p><a href="https://buymeacoffee.com/ethancollins">Buy me a coffee</a></p>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <ul>
+      <li><a href="https://github.com/ethanwheatthin/All-In-One-Snapchat-Downloader">Source code</a></li>
+      <li><a href="https://github.com/ethanwheatthin/All-In-One-Snapchat-Downloader/releases">All releases</a></li>
+      <li><a href="https://github.com/ethanwheatthin/All-In-One-Snapchat-Downloader/issues">Report a problem</a></li>
+      <li><a href="https://github.com/ethanwheatthin/All-In-One-Snapchat-Downloader#readme">Developer docs</a></li>
+      <li><a href="https://www.youtube.com/watch?v=O32IF1Qxg2E">Video tutorial</a></li>
+    </ul>
+    <p>This tool is not affiliated with, endorsed by, or connected to Snap Inc. or Snapchat. It is an independent utility that helps you download your own personal data from Snapchat's official data export. Provided as is, for personal use, in line with Snapchat's Terms of Service.</p>
+  </div>
+</footer>
+</body>
+</html>
