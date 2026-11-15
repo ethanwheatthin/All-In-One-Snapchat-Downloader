@@ -2733,11 +2733,8 @@ class SnapchatDownloaderGUI:
                         except Exception as meta_err:
                             logging.warning(f"Joined metadata failed: {meta_err}")
 
-                        for sp in segment_paths:
-                            try:
-                                os.remove(sp)
-                            except Exception:
-                                pass
+                        # The individual clips are kept next to the joined
+                        # file, so nothing from the export is ever lost.
                         total_stitched += 1
                         self.log(f"  ✓ Stitched → {joined_path.name}")
                     else:
